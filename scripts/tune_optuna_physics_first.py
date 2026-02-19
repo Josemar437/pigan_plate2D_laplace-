@@ -3,7 +3,7 @@
 """Busca com Optuna focada em convergência física estrita da PI-GAN.
 
 O alvo principal de otimização é a magnitude do resíduo bruto da PDE,
-com pruning orientado por métrica física por época (`g_residual_mean_abs`).
+com pruning orientado por métrica física por época (g_residual_mean_abs).
 """
 
 from __future__ import annotations

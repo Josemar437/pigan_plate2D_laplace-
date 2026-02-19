@@ -436,7 +436,7 @@ class FieldPIGANTrainer:
 
     @staticmethod
     def _serialize_numpy_state(state: tuple[Any, ...]) -> Dict[str, Any]:
-        """Converte estado RNG do NumPy para estrutura segura em `weights_only`."""
+        """Converte estado RNG do NumPy para estrutura segura em weights_only."""
         bit_gen, keys, pos, has_gauss, cached_gaussian = state
         return {
             "bit_generator": str(bit_gen),

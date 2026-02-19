@@ -292,8 +292,8 @@ class UNetGenerator2D(nn.Module):
         Define o modo de padding da suavização com segurança para CUDA.
 
         Em CUDA, quando o modo determinístico está ativo (ou não pode ser
-        consultado de forma confiável), usa ``replicate`` para evitar
-        não determinismo no backward de ``reflect``.
+        consultado de forma confiável), usa replicate para evitar
+        não determinismo no backward de reflect.
         """
         deterministic_enabled = cls._deterministic_algorithms_enabled()
         if raw.is_cuda:

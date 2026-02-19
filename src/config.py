@@ -20,7 +20,7 @@ try:
 except ImportError:
     HAS_PSUTIL = False
     warnings.warn(
-        "`psutil` não encontrado. O monitoramento de CPU e a otimização de "
+        "psutil não encontrado. O monitoramento de CPU e a otimização de "
         "'num_workers' estarão desativados. Instale com: pip install psutil"
     )
 
@@ -31,7 +31,7 @@ try:
 except ImportError:
     HAS_STRUCTLOG = False
     warnings.warn(
-        "`structlog` não encontrado. Usando logger padrão. Para logs "
+        "structlog não encontrado. Usando logger padrão. Para logs "
         "estruturados, instale com: pip install structlog"
     )
 
@@ -172,8 +172,8 @@ class ExperimentConfig:
     Configurações do experimento (modelo, treinamento, pesos, hiperparâmetros).
 
     Nota (Laplace 2D estacionária):
-    - `generator_mode='stochastic_pigan'` exige `latent_dim > 0` (PI-GAN gerativa).
-    - `generator_mode='deterministic_adversarial'` força `latent_dim=0` (modo não estocástico).
+    - generator_mode='stochastic_pigan' exige latent_dim > 0 (PI-GAN gerativa).
+    - generator_mode='deterministic_adversarial' força latent_dim=0 (modo não estocástico).
     - Saída do gerador permanece linear (sem ativação final).
     """
 
