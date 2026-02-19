@@ -1,0 +1,60 @@
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*$py.class
+.python-version
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.tox/
+.nox/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+.smoke311/
+
+# Test / coverage artifacts
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+
+# Training / experiment outputs
+runs/
+runs*/
+logs/
+doc/
+pigan_checkpoints_enhanced/
+pigan_plots/
+pigan_resulado_bruto/
+*.pt
+*.pth
+*.ckpt
+*.log
+
+# Local agent/tooling files
+.agent/
+.agents/
+
+# Legacy / archived code
+orphaned/
