@@ -181,7 +181,7 @@ Saidas principais de estudos Optuna:
 - `study_summary.json`
 - `trials/trial_XXXX/results/optuna_trial_summary.json`
 
-## Artefatos de execucao
+## Recursos
 
 Em `runs/results/`:
 - `metrics.json`
@@ -293,7 +293,7 @@ Cobertura atual:
   title        = {PI-GAN 2D para Laplace com referencia numerica},
   author       = {Autores do Projeto},
   year         = {2026},
-  howpublished = {\url{https://github.com/seu-repo}},
-  note         = {Codigo-fonte e artefatos experimentais}
+  howpublished = {\url{https://github.com/Josemar437/pigan_plate2D_laplace-.git}},
+  note         = 
 }
 ```
