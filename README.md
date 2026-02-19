@@ -291,7 +291,7 @@ Cobertura atual:
 ```bibtex
 @misc{pigan_laplace_2d,
   title        = {PI-GAN 2D para Laplace com referencia numerica},
-  author       = {Autores do Projeto},
+  author       = {Josemar Rocha Pedroso; Camila Borges; Dra. N. C. de Sousa},
   year         = {2026},
   howpublished = {\url{https://github.com/Josemar437/pigan_plate2D_laplace-.git}},
   note         = 
