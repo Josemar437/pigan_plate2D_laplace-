@@ -200,6 +200,7 @@ class ExperimentConfig:
     generator_pooling: str = "avg"
     use_physical_coordinates: bool = True
     hard_constraint_bc: bool = True
+    hard_constraint_profile: str = "tanh"  # Perfil de restrição dura: 'tanh' ou 'polynomial'
 
     # === Arquitetura do discriminador ===
     discriminator_base_channels: int = 12
@@ -229,8 +230,9 @@ class ExperimentConfig:
     fdm_max_iter: int = 100000
     fdm_omega: float = 1.0
 
-    lambda_adv1: float = 5.0e-1
+    lambda_adv1: float = 5.0e-3
     lambda_adv2: float = 2.0e-1
+    lambda_diversity: float = 1.0e-4
     lambda_pde: float = 37.0
     lambda_bc: float = 20.0
     lambda_gp: float = 8.0
@@ -341,6 +343,8 @@ class ExperimentConfig:
 
         if float(self.lambda_adv1) < 0.0 or float(self.lambda_adv2) < 0.0:
             raise ModelConfigurationError("lambda_adv1/lambda_adv2 devem ser >= 0.")
+        if float(self.lambda_diversity) < 0.0:
+            raise ModelConfigurationError("lambda_diversity deve ser >= 0.")
         if float(self.boundary_sine_amplitude) < 0.0:
             raise ModelConfigurationError("boundary_sine_amplitude deve ser >= 0.")
 
@@ -538,6 +542,27 @@ class ExperimentConfig:
         if self.generator_mode == "deterministic_adversarial":
             # Modo explicitamente nao estocastico.
             self.latent_dim = 0
+
+        # === P1: CORREÇÃO SKILL - lambda_bc deve ser 0 quando hard_constraint_bc=True ===
+        if bool(self.hard_constraint_bc) and float(self.lambda_bc) > 1e-6:
+            warnings.warn(
+                f"P1 CORRECTION: hard_constraint_bc=True mas lambda_bc={self.lambda_bc:.2e}. "
+                f"Forçando lambda_bc=0.0 pois a restrição dura (T=g+φ·T̂) já garante BC exato. "
+                f"lambda_bc deveria ser usado apenas para soft constraints (hard_constraint_bc=False).",
+                UserWarning
+            )
+            self.lambda_bc = 0.0
+
+
+    @property
+    def lambda_adv(self) -> float:
+        """
+        Propriedade de compatibilidade que retorna lambda_adv1 (discriminador principal).
+        
+        Retorno:
+            float: Valor de lambda_adv1 para uso em validadores e componentes legados.
+        """
+        return self.lambda_adv1
 
 
 class GPUMemoryManager:

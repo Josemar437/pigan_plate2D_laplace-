@@ -14,198 +14,32 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+from src.config import ExperimentConfig
 from src.models import FieldDualDiscriminator, LaplacianLayer, UNetGenerator2D
+from src.physics.pde_residual import PDE_Residual_Computer
+from src.physics.domain_metrics import Domain_Metrics_Computer
+from src.training.loss_functions import PIGANLossComputation
+from src.training.adaptive_schemes import (
+    AdaptiveLambdaPDE,
+    GradNormBalancer,
+    StagnationDetector,
+    DivergenceDetector,
+)
 
 
-@dataclass
-class FieldTrainerConfig:
-    """
-    Configurações exaustivas para o treinamento do PI-GAN de campo.
+# DEPRECATED: FieldTrainerConfig foi consolidado em ExperimentConfig (src/config.py)
+# Manter como alias por compatibilidade retroativa
+FieldTrainerConfig = ExperimentConfig
 
-    Atributos:
-        epochs: Número total de épocas.
-        steps_per_epoch: Passos de otimização por época.
-        batch_size: Tamanho do lote.
-        n_critic: Número de atualizações do discriminador por passo do gerador.
-        gen_lr: Taxa de aprendizado do gerador.
-        disc_lr: Taxa de aprendizado base dos discriminadores.
-        betas: Betas para o otimizador Adam.
-        weight_decay: Decaimento de peso (L2).
-        lambda_adv1: Peso ponderado da perda adversarial D1 (física).
-        lambda_adv2: Peso ponderado da perda adversarial D2 (dados).
-        use_reference_discriminator: Se habilita o discriminador D2 guiado por FDM.
-        lambda_pde: Peso base da perda de resíduo da PDE.
-        lambda_bc: Peso da perda de condições de contorno (se não usar hard constraint).
-        lambda_gp: Peso do Gradient Penalty (WGAN-GP).
-        use_wgan_gp: Se ativa o Gradient Penalty.
-        d1_real_noise_std: Desvio padrão do ruído nos alvos reais de D1.
-        d2_pair_noise_std: Desvio padrão do ruído nos alvos de D2.
-        critic_drift: Coeficiente de drift para estabilidade WGAN.
-        max_critic_gap: Gap máximo permitido entre real/fake antes da penalidade.
-        critic_gap_penalty: Intensidade da penalidade de gap excessivo.
-        residual_tanh_scale: Escala para normalização tanh do resíduo (opcional).
-        use_tanh_on_residual: Se aplica tanh no resíduo antes de D1.
-        dynamic_adv_balance: Ativa o equilíbrio dinâmico entre adversarial e física.
-        target_adv_over_pde: Alvo da razão adversarial/pde.
-        adv_scale_ema_beta: Beta do EMA para escala adversarial.
-        adv_scale_min: Escala mínima para o termo adversarial.
-        adv_scale_max: Escala máxima para o termo adversarial.
-        pde_norm_ema_beta: Beta do EMA para normalização do resíduo PDE.
-        grad_clip: Valor de corte para clipping de gradiente.
-        generator_mode: Modo de operação do gerador (ex: 'adversarial').
-        save_frequency: Frequência (épocas) para salvar checkpoints.
-        checkpoint_dir: Diretório para salvar modelos.
-        disc_update_every: Frequência de atualização dos discriminadores.
-        disc_lr_d1: Taxa de aprendizado específica para D1 (opcional).
-        disc_lr_d2: Taxa de aprendizado específica para D2 (opcional).
-        lambda_gp_d1: Peso GP específico para D1 (opcional).
-        lambda_gp_d2: Peso GP específico para D2 (opcional).
-        d1_real_residual_mode: Fonte do resíduo real para D1 ('reference' ou 'zero').
-        lambda_pde_raw: Peso adicional para a perda bruta da PDE.
-        residual_mean_abs_target: Alvo de erro médio absoluto para o resíduo.
-        adv_residual_gate_target: Alvo do gate de resíduo para ativar adversarial.
-        adv_residual_gate_min: Valor mínimo do gate.
-        adv_residual_gate_hysteresis: Ativa gate Schmitt (liga/desliga com memória).
-        adv_residual_gate_off_threshold: Limiar para desligar gate adversarial.
-        adv_residual_gate_power: Expoente do gate suave (quando sem histerese).
-        adv_warmup_epochs: Épocas de aquecimento para o termo adversarial.
-        critic_pause_on_overgap: Pausa discriminadores se o gap for extremo.
-        critic_pause_gap_factor: Multiplicador de max_critic_gap para entrar em pausa.
-        critic_resume_gap_factor: Multiplicador para sair da pausa (histerese).
-        adv_stagnation_boost: Aumenta adversarial quando o resíduo estagna.
-        adv_stagnation_patience: Passos sem melhoria antes do boost.
-        adv_stagnation_rel_tol: Tolerância relativa para considerar melhoria.
-        adv_stagnation_boost_factor: Fator multiplicativo do boost adversarial.
-        adv_stagnation_min_gate: Gate mínimo para permitir boost de estagnação.
-        adv_stagnation_cooldown: Espera entre boosts consecutivos.
-        pde_corner_sampling_ratio: Fração alvo da massa de amostragem PDE nos cantos.
-        pde_corner_band_points: Largura (em pontos internos) da região de canto.
-        adaptive_lambda_pde: Ativa ajuste adaptativo de lambda_pde.
-        residual_tolerance_target: Alvo de tolerância para o resíduo.
-        residual_scale_reference: Escala de referência para cálculo de lambda_pde.
-        lambda_pde_growth_exponent: Expoente de crescimento de lambda_pde.
-        lambda_pde_min: Valor mínimo adaptativo para lambda_pde.
-        lambda_pde_max: Valor máximo adaptativo para lambda_pde.
-        lambda_pde_ema_beta: Beta do EMA para lambda_pde adaptativo.
-        gradnorm_balance: Ativa balanceamento via norma de gradientes.
-        gradnorm_target_adv_to_pde: Razão alvo entre normas de grad. adv e pde.
-        gradnorm_ema_beta: Beta do EMA para balanceamento de gradNorm.
-        gradnorm_scale_min: Escala mínima via gradNorm.
-        gradnorm_scale_max: Escala máxima via gradNorm.
-        divergence_window: Janela para detecção de divergência.
-        divergence_ratio_threshold: Limiar de razão de perda para considerar divergência.
-        divergence_patience: Paciência para ativar redução de LR por divergência.
-        lr_drop_factor: Fator de redução de taxa de aprendizado.
-        max_lr_drops: Máximo de reduções permitidas por divergência.
-        plateau_scheduler_enabled: Ativa redução de LR por platô de métrica.
-        plateau_metric_key: Chave da métrica monitorada para platô.
-        plateau_mode: Modo do monitor ('min' ou 'max').
-        plateau_patience: Paciência para detecção de platô.
-        plateau_factor: Fator de redução de LR em platô.
-        plateau_min_delta: Delta mínimo para considerar melhoria.
-        plateau_cooldown: Épocas de espera após redução por platô.
-        plateau_max_drops: Máximo de reduções permitidas por platô.
-        plateau_reduce_discriminators: Se reduz LR dos discriminadores também.
-        activation_abs_limit: Limite absoluto para ativações (segurança).
-        residual_hist_bins: Número de bins para histogramas de resíduo.
-        early_stop_on_nonfinite: Para treino se NaN/Inf detectado.
-    """
-    epochs: int
-    steps_per_epoch: int
-    batch_size: int
-    n_critic: int
-    gen_lr: float
-    disc_lr: float
-    betas: tuple[float, float]
-    weight_decay: float
-    lambda_adv1: float
-    lambda_adv2: float
-    lambda_pde: float
-    lambda_bc: float
-    lambda_gp: float
-    use_wgan_gp: bool
-    d1_real_noise_std: float
-    d2_pair_noise_std: float
-    critic_drift: float
-    max_critic_gap: float
-    critic_gap_penalty: float
-    residual_tanh_scale: float
-    use_tanh_on_residual: bool
-    dynamic_adv_balance: bool
-    target_adv_over_pde: float
-    adv_scale_ema_beta: float
-    adv_scale_min: float
-    adv_scale_max: float
-    pde_norm_ema_beta: float
-    grad_clip: float
-    generator_mode: str
-    use_reference_discriminator: bool = True
-    save_frequency: int = 0
-    checkpoint_dir: Optional[str] = None
-    disc_update_every: int = 1
-    disc_lr_d1: Optional[float] = None
-    disc_lr_d2: Optional[float] = None
-    lambda_gp_d1: Optional[float] = None
-    lambda_gp_d2: Optional[float] = None
-    d1_real_residual_mode: str = "reference"
-    lambda_pde_raw: float = 0.0
-    residual_mean_abs_target: float = 0.0
-    adv_residual_gate_target: float = 0.0
-    adv_residual_gate_min: float = 0.1
-    adv_residual_gate_hysteresis: bool = False
-    adv_residual_gate_off_threshold: float = 0.0
-    adv_residual_gate_power: float = 1.0
-    adv_warmup_epochs: int = 0
-    critic_pause_on_overgap: bool = False
-    critic_pause_gap_factor: float = 1.25
-    critic_resume_gap_factor: float = 0.75
-    adv_stagnation_boost: bool = False
-    adv_stagnation_patience: int = 40
-    adv_stagnation_rel_tol: float = 1e-3
-    adv_stagnation_boost_factor: float = 1.15
-    adv_stagnation_min_gate: float = 0.5
-    adv_stagnation_cooldown: int = 5
-    adv_progressive_enable: bool = False
-    adv_progressive_start_epoch: int = 0
-    adv_progressive_ramp_epochs: int = 1
-    adv_progressive_max_multiplier: float = 1.0
-    adv_progressive_power: float = 1.0
-    pde_corner_sampling_ratio: float = 0.0
-    pde_corner_band_points: int = 2
-    precision_refine_enable: bool = False
-    precision_refine_start_epoch: int = 0
-    precision_refine_n_critic: int = 1
-    precision_refine_n_critic_ramp_epochs: int = 1
-    precision_refine_lambda_pde_max_scale: float = 1.0
-    adaptive_lambda_pde: bool = True
-    residual_tolerance_target: float = 1e-3
-    residual_scale_reference: float = 1.0
-    lambda_pde_growth_exponent: float = 0.5
-    lambda_pde_min: float = 1.0
-    lambda_pde_max: float = 500.0
-    lambda_pde_ema_beta: float = 0.9
-    gradnorm_balance: bool = True
-    gradnorm_target_adv_to_pde: float = 0.25
-    gradnorm_ema_beta: float = 0.9
-    gradnorm_scale_min: float = 0.05
-    gradnorm_scale_max: float = 1.0
-    divergence_window: int = 20
-    divergence_ratio_threshold: float = 1.3
-    divergence_patience: int = 2
-    lr_drop_factor: float = 0.1
-    max_lr_drops: int = 3
-    plateau_scheduler_enabled: bool = False
-    plateau_metric_key: str = "g_residual_mean_abs"
-    plateau_mode: str = "min"
-    plateau_patience: int = 25
-    plateau_factor: float = 0.5
-    plateau_min_delta: float = 1e-4
-    plateau_cooldown: int = 5
-    plateau_max_drops: int = 4
-    plateau_reduce_discriminators: bool = False
-    activation_abs_limit: float = 1e6
-    residual_hist_bins: int = 12
-    early_stop_on_nonfinite: bool = True
+
+# === CONFIGURAÇÃO LEGADO (REMOVIDA) ===
+# @dataclass
+# class FieldTrainerConfig:
+# === CONFIGURAÇÃO LEGADO (REMOVIDA) ===
+# @dataclass
+# class FieldTrainerConfig:
+#     """Consolidado em ExperimentConfig (src/config.py)"""
+#     pass
 
 
 def _set_requires_grad(module: nn.Module, requires_grad: bool) -> None:
@@ -406,6 +240,53 @@ class FieldPIGANTrainer:
         self._plateau_drop_count = 0
         self._stop_requested = False
         self._stop_reason = ""
+
+        # === NOVOS COMPONENTES REFATORADOS ===
+        # Inicializar computadores de PDE e métricas
+        self.pde_computer = PDE_Residual_Computer(
+            grid_size_x=int(base_field.shape[-1]),
+            grid_size_y=int(base_field.shape[-2]),
+            use_gpu=(device.type == "cuda"),
+        )
+        self.domain_metrics_computer = Domain_Metrics_Computer(device=device)
+        
+        # Inicializar computador centralizado de perdas
+        self.loss_computer = PIGANLossComputation(
+            grid_size_x=int(base_field.shape[-1]),
+            grid_size_y=int(base_field.shape[-2]),
+            use_gpu=(device.type == "cuda"),
+        )
+        
+        # Inicializar adaptadores dinâmicos
+        self.lambda_pde_adapter = AdaptiveLambdaPDE(
+            lambda_pde_min=float(getattr(config, "lambda_pde_min", 19.0)),
+            lambda_pde_max=float(getattr(config, "lambda_pde_max", 98.0)),
+            ema_beta=float(getattr(config, "lambda_pde_ema_beta", 0.9)),
+            residual_scale_reference=float(getattr(config, "residual_scale_reference", 1.0)),
+            residual_tolerance_target=float(getattr(config, "residual_tolerance_target", 1e-3)),
+            growth_exponent=float(getattr(config, "lambda_pde_growth_exponent", 0.6)),
+        )
+        
+        self.gradnorm_balancer = GradNormBalancer(
+            target_ratio=float(getattr(config, "gradnorm_target_adv_to_pde", 0.35)),
+            ema_beta=float(getattr(config, "gradnorm_ema_beta", 0.9)),
+            scale_min=float(getattr(config, "gradnorm_scale_min", 0.05)),
+            scale_max=float(getattr(config, "gradnorm_scale_max", 1.0)),
+        )
+        
+        self.stagnation_detector = StagnationDetector(
+            patience=int(getattr(config, "adv_stagnation_patience", 50)),
+            rel_tolerance=float(getattr(config, "adv_stagnation_rel_tol", 5e-3)),
+            boost_factor=float(getattr(config, "adv_stagnation_boost_factor", 1.4)),
+            cooldown=int(getattr(config, "adv_stagnation_cooldown", 8)),
+        )
+        
+        self.divergence_detector = DivergenceDetector(
+            window_size=int(getattr(config, "divergence_window", 16)),
+            ratio_threshold=float(getattr(config, "divergence_ratio_threshold", 1.2)),
+            patience=int(getattr(config, "divergence_patience", 2)),
+        )
+
         with torch.no_grad():
             self.reference_residual = self.laplacian(self.reference_field).detach()
 
