@@ -1,0 +1,601 @@
+{
+  "statistics": {
+    "detectionDate": "2026-02-19T05:24:14.039Z",
+    "formats": {
+      "python": {
+        "sources": {
+          "tests/__init__.py": {
+            "lines": 15,
+            "tokens": 15,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "tests/test_pipeline_execution.py": {
+            "lines": 48,
+            "tokens": 463,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "tests/test_laplacian_field_operator.py": {
+            "lines": 63,
+            "tokens": 807,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "tests/test_field_training_modes.py": {
+            "lines": 181,
+            "tokens": 1248,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "tests/test_cpu_fallback.py": {
+            "lines": 16,
+            "tokens": 151,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "tests/test_checkpoint_resume.py": {
+            "lines": 60,
+            "tokens": 480,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "scripts/tune_optuna_physics_first.py": {
+            "lines": 483,
+            "tokens": 4315,
+            "sources": 1,
+            "clones": 8,
+            "duplicatedLines": 125,
+            "duplicatedTokens": 1152,
+            "percentage": 25.88,
+            "percentageTokens": 26.7,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "scripts/tune_active_pigan.py": {
+            "lines": 652,
+            "tokens": 5392,
+            "sources": 1,
+            "clones": 1,
+            "duplicatedLines": 6,
+            "duplicatedTokens": 76,
+            "percentage": 0.92,
+            "percentageTokens": 1.41,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "scripts/run_final_4000_best.py": {
+            "lines": 312,
+            "tokens": 2764,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "scripts/optuna_search.py": {
+            "lines": 837,
+            "tokens": 7083,
+            "sources": 1,
+            "clones": 8,
+            "duplicatedLines": 125,
+            "duplicatedTokens": 1152,
+            "percentage": 14.93,
+            "percentageTokens": 16.26,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "scripts/optuna_common.py": {
+            "lines": 192,
+            "tokens": 1743,
+            "sources": 1,
+            "clones": 3,
+            "duplicatedLines": 20,
+            "duplicatedTokens": 276,
+            "percentage": 10.42,
+            "percentageTokens": 15.83,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "src/__init__.py": {
+            "lines": 21,
+            "tokens": 39,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "src/utils.py": {
+            "lines": 185,
+            "tokens": 1106,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "src/models.py": {
+            "lines": 811,
+            "tokens": 5957,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "src/fdm.py": {
+            "lines": 124,
+            "tokens": 913,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "src/evaluation.py": {
+            "lines": 103,
+            "tokens": 787,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          },
+          "main.py": {
+            "lines": 148,
+            "tokens": 786,
+            "sources": 1,
+            "clones": 0,
+            "duplicatedLines": 0,
+            "duplicatedTokens": 0,
+            "percentage": 0,
+            "percentageTokens": 0,
+            "newDuplicatedLines": 0,
+            "newClones": 0
+          }
+        },
+        "total": {
+          "lines": 4251,
+          "tokens": 34049,
+          "sources": 17,
+          "clones": 10,
+          "duplicatedLines": 138,
+          "duplicatedTokens": 1328,
+          "percentage": 3.25,
+          "percentageTokens": 3.9,
+          "newDuplicatedLines": 0,
+          "newClones": 0
+        }
+      }
+    },
+    "total": {
+      "lines": 4251,
+      "tokens": 34049,
+      "sources": 17,
+      "clones": 10,
+      "duplicatedLines": 138,
+      "duplicatedTokens": 1328,
+      "percentage": 3.25,
+      "percentageTokens": 3.9,
+      "newDuplicatedLines": 0,
+      "newClones": 0
+    }
+  },
+  "duplicates": [
+    {
+      "format": "python",
+      "lines": 6,
+      "fragment": "exp.epochs = int(args.epochs)\n    exp.steps_per_epoch = int(args.steps_per_epoch)\n    exp.batch_size = int(args.batch_size)\n    exp.grid_size_x = int(args.grid_size)\n    exp.grid_size_y = int(args.grid_size)\n    exp.analysis_num_samples",
+      "tokens": 0,
+      "firstFile": {
+        "name": "scripts\\optuna_search.py",
+        "start": 255,
+        "end": 260,
+        "startLoc": {
+          "line": 255,
+          "column": 5,
+          "position": 2149
+        },
+        "endLoc": {
+          "line": 260,
+          "column": 21,
+          "position": 2221
+        }
+      },
+      "secondFile": {
+        "name": "scripts\\tune_optuna_physics_first.py",
+        "start": 107,
+        "end": 112,
+        "startLoc": {
+          "line": 107,
+          "column": 5,
+          "position": 807
+        },
+        "endLoc": {
+          "line": 112,
+          "column": 24,
+          "position": 879
+        }
+      }
+    },
+    {
+      "format": "python",
+      "lines": 12,
+      "fragment": ",\n) -> Dict[str, Any]:\n    best_res, best_epoch = _best_train_residual(history)\n    payload: Dict[str, Any] = {\n        \"trial_number\": int(trial.number),\n        \"state\": str(state),\n        \"params\": _round_hyperparams(\n            dict(trial.params),\n            sigfigs=3,\n            scientific=True,\n        ),\n        \"score\"",
+      "tokens": 0,
+      "firstFile": {
+        "name": "scripts\\optuna_search.py",
+        "start": 521,
+        "end": 532,
+        "startLoc": {
+          "line": 521,
+          "column": 2,
+          "position": 4264
+        },
+        "endLoc": {
+          "line": 532,
+          "column": 8,
+          "position": 4364
+        }
+      },
+      "secondFile": {
+        "name": "scripts\\tune_optuna_physics_first.py",
+        "start": 218,
+        "end": 229,
+        "startLoc": {
+          "line": 218,
+          "column": 5,
+          "position": 1921
+        },
+        "endLoc": {
+          "line": 229,
+          "column": 9,
+          "position": 2021
+        }
+      }
+    },
+    {
+      "format": "python",
+      "lines": 9,
+      "fragment": "),\n    }\n    if history:\n        payload[\"final_epoch_metrics\"] = {\n            k: float(v) for k, v in history[-1].items()\n        }\n    if metrics is not None:\n        payload[\"eval_metrics\"] = {k: float(v) for k, v in metrics.items()}\n    if",
+      "tokens": 0,
+      "firstFile": {
+        "name": "scripts\\optuna_search.py",
+        "start": 537,
+        "end": 545,
+        "startLoc": {
+          "line": 537,
+          "column": 3,
+          "position": 4451
+        },
+        "endLoc": {
+          "line": 545,
+          "column": 3,
+          "position": 4550
+        }
+      },
+      "secondFile": {
+        "name": "scripts\\tune_optuna_physics_first.py",
+        "start": 239,
+        "end": 247,
+        "startLoc": {
+          "line": 239,
+          "column": 9,
+          "position": 2161
+        },
+        "endLoc": {
+          "line": 247,
+          "column": 8,
+          "position": 2260
+        }
+      }
+    },
+    {
+      "format": "python",
+      "lines": 23,
+      "fragment": "return payload\n\n\ndef build_objective(\n    *,\n    args: argparse.Namespace,\n    output_root: Path,\n    use_gpu: bool,\n) -> \"callable[[optuna.Trial], float]\":\n    trials_dir = output_root / \"trials\"\n    trials_dir.mkdir(parents=True, exist_ok=True)\n\n    def objective(trial: optuna.Trial) -> float:\n        trial_dir = trials_dir / f\"trial_{trial.number:04d}\"\n        if trial_dir.exists():\n            shutil.rmtree(trial_dir)\n        trial_dir.mkdir(parents=True, exist_ok=True)\n\n        exp_cfg = _build_experiment_config(trial, args)\n        sys_cfg = _build_system_config(\n            seed=int(args.seed + trial.number), use_gpu=use_gpu\n        )\n        pipeline = PIGANPipeline(exp_cfg",
+      "tokens": 0,
+      "firstFile": {
+        "name": "scripts\\optuna_search.py",
+        "start": 549,
+        "end": 571,
+        "startLoc": {
+          "line": 549,
+          "column": 5,
+          "position": 4599
+        },
+        "endLoc": {
+          "line": 571,
+          "column": 8,
+          "position": 4789
+        }
+      },
+      "secondFile": {
+        "name": "scripts\\tune_optuna_physics_first.py",
+        "start": 251,
+        "end": 274,
+        "startLoc": {
+          "line": 251,
+          "column": 5,
+          "position": 2299
+        },
+        "endLoc": {
+          "line": 274,
+          "column": 18,
+          "position": 2491
+        }
+      }
+    },
+    {
+      "format": "python",
+      "lines": 9,
+      "fragment": ": Optional[Dict[str, float]] = None\n        score: Optional[float] = None\n        try:\n            hx, hy = pipeline._prepare_physics_fields()\n            pipeline.generator, pipeline.discriminator = (\n                pipeline._create_models()\n            )\n            pipeline.trainer = pipeline._create_trainer(hx, hy)\n            pipeline",
+      "tokens": 0,
+      "firstFile": {
+        "name": "scripts\\optuna_search.py",
+        "start": 575,
+        "end": 583,
+        "startLoc": {
+          "line": 575,
+          "column": 7,
+          "position": 4842
+        },
+        "endLoc": {
+          "line": 583,
+          "column": 9,
+          "position": 4932
+        }
+      },
+      "secondFile": {
+        "name": "scripts\\tune_optuna_physics_first.py",
+        "start": 280,
+        "end": 289,
+        "startLoc": {
+          "line": 280,
+          "column": 8,
+          "position": 2534
+        },
+        "endLoc": {
+          "line": 289,
+          "column": 4,
+          "position": 2625
+        }
+      }
+    },
+    {
+      "format": "python",
+      "lines": 12,
+      "fragment": ")\n    parser.add_argument(\"--pruner-interval\", type=int, default=5)\n    parser.add_argument(\"--top-k\", type=int, default=10)\n    return parser.parse_args()\n\n\ndef main() -> None:\n    args = parse_args()\n    os.environ.setdefault(\"PIGAN_ALLOW_CPU\", \"1\")\n    use_gpu = bool(args.use_gpu and torch.cuda.is_available())\n\n    try",
+      "tokens": 0,
+      "firstFile": {
+        "name": "scripts\\optuna_search.py",
+        "start": 739,
+        "end": 750,
+        "startLoc": {
+          "line": 739,
+          "column": 3,
+          "position": 6238
+        },
+        "endLoc": {
+          "line": 750,
+          "column": 4,
+          "position": 6345
+        }
+      },
+      "secondFile": {
+        "name": "scripts\\tune_optuna_physics_first.py",
+        "start": 405,
+        "end": 416,
+        "startLoc": {
+          "line": 405,
+          "column": 3,
+          "position": 3640
+        },
+        "endLoc": {
+          "line": 416,
+          "column": 12,
+          "position": 3747
+        }
+      }
+    },
+    {
+      "format": "python",
+      "lines": 29,
+      "fragment": ")\n\n    sampler = optuna.samplers.TPESampler(\n        seed=int(args.seed), multivariate=True\n    )\n    pruner = optuna.pruners.MedianPruner(\n        n_startup_trials=max(0, int(args.pruner_startup_trials)),\n        n_warmup_steps=max(0, int(args.pruner_warmup_epochs)),\n        interval_steps=max(1, int(args.pruner_interval)),\n    )\n    storage = str(args.storage).strip() or None\n    study = optuna.create_study(\n        study_name=str(args.study_name),\n        direction=\"minimize\",\n        sampler=sampler,\n        pruner=pruner,\n        storage=storage,\n        load_if_exists=storage is not None,\n    )\n\n    print(f\"[env] python={sys.executable}\")\n    print(f\"[env] torch={\n            torch.__version__} cuda_available={\n            torch.cuda.is_available()} use_gpu={use_gpu}\")\n    print(\n        f\"[study] name={study.study_name} trials={int(args.trials)} epochs={int(args.epochs)} \"\n        f\"steps_per_epoch={int(args.steps_per_epoch)} grid={int(args.grid_size)}\"\n    )\n    if",
+      "tokens": 0,
+      "firstFile": {
+        "name": "scripts\\optuna_search.py",
+        "start": 765,
+        "end": 793,
+        "startLoc": {
+          "line": 765,
+          "column": 9,
+          "position": 6461
+        },
+        "endLoc": {
+          "line": 793,
+          "column": 3,
+          "position": 6704
+        }
+      },
+      "secondFile": {
+        "name": "scripts\\tune_optuna_physics_first.py",
+        "start": 417,
+        "end": 446,
+        "startLoc": {
+          "line": 417,
+          "column": 5,
+          "position": 3771
+        },
+        "endLoc": {
+          "line": 446,
+          "column": 10,
+          "position": 4015
+        }
+      }
+    },
+    {
+      "format": "python",
+      "lines": 33,
+      "fragment": ")\n\n    objective = build_objective(\n        args=args, output_root=output_root, use_gpu=use_gpu\n    )\n    timeout = None if int(args.timeout) <= 0 else int(args.timeout)\n    study.optimize(\n        objective,\n        n_trials=max(1, int(args.trials)),\n        timeout=timeout,\n        gc_after_trial=True,\n        show_progress_bar=bool(args.show_progress),\n    )\n\n    summary = _study_summary_payload(\n        study,\n        top_k=int(args.top_k),\n        params_sigfigs=3,\n        params_scientific=True,\n    )\n    _write_json(output_root / \"study_summary.json\", summary)\n\n    if summary.get(\"best_params\") is not None:\n        _write_json(\n            output_root / \"best_trial.json\",\n            {\n                \"study_name\": study.study_name,\n                \"best_value\": summary[\"best_value\"],\n                \"best_params\": summary[\"best_params\"],\n                \"best_user_attrs\": summary.get(\"best_user_attrs\", {}),\n            },\n        )\n        print(\"[feito] melhor trial encontrado\"",
+      "tokens": 0,
+      "firstFile": {
+        "name": "scripts\\optuna_search.py",
+        "start": 798,
+        "end": 830,
+        "startLoc": {
+          "line": 798,
+          "column": 53,
+          "position": 6779
+        },
+        "endLoc": {
+          "line": 830,
+          "column": 34,
+          "position": 7030
+        }
+      },
+      "secondFile": {
+        "name": "scripts\\tune_optuna_physics_first.py",
+        "start": 444,
+        "end": 476,
+        "startLoc": {
+          "line": 444,
+          "column": 5,
+          "position": 4011
+        },
+        "endLoc": {
+          "line": 476,
+          "column": 23,
+          "position": 4262
+        }
+      }
+    },
+    {
+      "format": "python",
+      "lines": 7,
+      "fragment": "(history: List[Dict[str, float]], key: str) -> np.ndarray:\n    return np.asarray(\n        [float(item.get(key, np.nan)) for item in history], dtype=float\n    )\n\n\ndef tail_mean_abs",
+      "tokens": 0,
+      "firstFile": {
+        "name": "scripts\\optuna_common.py",
+        "start": 28,
+        "end": 34,
+        "startLoc": {
+          "line": 28,
+          "column": 14,
+          "position": 140
+        },
+        "endLoc": {
+          "line": 34,
+          "column": 14,
+          "position": 216
+        }
+      },
+      "secondFile": {
+        "name": "scripts\\tune_active_pigan.py",
+        "start": 205,
+        "end": 211,
+        "startLoc": {
+          "line": 205,
+          "column": 16,
+          "position": 1089
+        },
+        "endLoc": {
+          "line": 211,
+          "column": 11,
+          "position": 1165
+        }
+      }
+    },
+    {
+      "format": "python",
+      "lines": 8,
+      "fragment": "(\n    history: List[Dict[str, float]], key: str, window: int = 30\n) -> float:\n    arr = history_array(history, key)\n    if arr.size == 0:\n        return float(\"nan\")\n    tail = arr[-min(window, arr.size) :]\n    tail = tail",
+      "tokens": 0,
+      "firstFile": {
+        "name": "scripts\\optuna_common.py",
+        "start": 47,
+        "end": 54,
+        "startLoc": {
+          "line": 47,
+          "column": 9,
+          "position": 370
+        },
+        "endLoc": {
+          "line": 54,
+          "column": 5,
+          "position": 470
+        }
+      },
+      "secondFile": {
+        "name": "scripts\\optuna_common.py",
+        "start": 34,
+        "end": 41,
+        "startLoc": {
+          "line": 34,
+          "column": 14,
+          "position": 217
+        },
+        "endLoc": {
+          "line": 41,
+          "column": 3,
+          "position": 317
+        }
+      }
+    }
+  ]
+}
