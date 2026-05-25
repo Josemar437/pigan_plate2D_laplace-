@@ -15,13 +15,20 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from src.config import ExperimentConfig, SystemConfig, initialize_system
+from dataclasses import asdict
+
+from src.config import (
+    ExperimentConfig,
+    SystemConfig,
+    initialize_system,
+    log_hyperparameters_at_start,
+)
 from src.evaluation import compute_field_metrics
-from src.fdm import solve_laplace_dirichlet
+from src.fdm import solve_laplace_mixed_dirichlet_neumann
 from src.utils import (
     build_dirichlet_extension,
-    build_domain_masks,
     build_hard_constraint_mask,
+    build_mixed_boundary_masks,
     create_cartesian_grid,
 )
 from src.models import (
@@ -78,6 +85,7 @@ class PIGANPipeline:
         self.reference_field: Optional[torch.Tensor] = None
         self.interior_mask: Optional[torch.Tensor] = None
         self.boundary_mask: Optional[torch.Tensor] = None
+        self.neumann_mask: Optional[torch.Tensor] = None
         self._baseline_metrics: Optional[Dict[str, float]] = None
 
         if self.logger:
@@ -100,7 +108,8 @@ class PIGANPipeline:
                 objective=(
                     "min_G max_Df,Dd: "
                     "L_G=lambda_pde*L_PDE_raw + lambda_adv_f*(-E[D_f(fake)]) "
-                    "+ lambda_adv_d*(-E[D_d(fake)]) + lambda_bc*L_BC; "
+                    "+ lambda_adv_d*(-E[D_d(fake)]) + lambda_bc*L_BC "
+                    "+ lambda_neumann*L_N; "
                     "L_Df=E[D_f(fake)]-E[D_f(real)] + lambda_gp*GP_f; "
                     "L_Dd=E[D_d(fake)]-E[D_d(real)] + lambda_gp*GP_d"
                 ),
@@ -142,19 +151,18 @@ class PIGANPipeline:
         )
         phi = build_hard_constraint_mask(x_grid, y_grid, lx=lx, ly=ly)
 
-        boundary_values = g_field.clone()
-        boundary_values[1:-1, 1:-1] = 0.0
-        t_ref, fdm_iters = solve_laplace_dirichlet(
-            boundary_values,
+        t_ref, fdm_iters = solve_laplace_mixed_dirichlet_neumann(
+            g_field,
             lx=lx,
             ly=ly,
+            t_left=float(self.exp_config.T_LEFT),
+            t_right=float(self.exp_config.T_RIGHT),
             tol=float(self.exp_config.fdm_tol),
             max_iter=int(self.exp_config.fdm_max_iter),
             omega=float(self.exp_config.fdm_omega),
-            initial_guess=g_field,
         )
 
-        interior_mask, boundary_mask = build_domain_masks(
+        interior_mask, boundary_mask, neumann_mask = build_mixed_boundary_masks(
             ny, nx, device=self.device, dtype=field_dtype
         )
 
@@ -164,6 +172,7 @@ class PIGANPipeline:
         self.reference_field = t_ref.unsqueeze(0).unsqueeze(0)
         self.interior_mask = interior_mask
         self.boundary_mask = boundary_mask
+        self.neumann_mask = neumann_mask
 
         if self.logger:
             self.logger.info(
@@ -243,6 +252,7 @@ class PIGANPipeline:
                 self.reference_field,
                 self.interior_mask,
                 self.boundary_mask,
+                self.neumann_mask,
             )
         ):
             raise RuntimeError("Campos físicos devem ser preparados antes de criar o trainer.")
@@ -276,6 +286,7 @@ class PIGANPipeline:
             lambda_adv2=float(self.exp_config.lambda_adv2),
             lambda_pde=float(self.exp_config.lambda_pde),
             lambda_bc=lambda_bc,
+            lambda_neumann=float(getattr(self.exp_config, "lambda_neumann", 0.0)),
             lambda_gp=float(self.exp_config.lambda_gp),
             use_wgan_gp=bool(self.exp_config.use_wgan_gp),
             d1_real_noise_std=float(self.exp_config.d1_real_noise_std),
@@ -402,6 +413,31 @@ class PIGANPipeline:
             plateau_reduce_discriminators=bool(getattr(self.exp_config, "plateau_reduce_discriminators", False)),
             activation_abs_limit=float(getattr(self.exp_config, "activation_abs_limit", 1e6)),
             residual_hist_bins=max(4, int(getattr(self.exp_config, "residual_hist_bins", 12))),
+            physics_refine_enable=bool(getattr(self.exp_config, "physics_refine_enable", False)),
+            physics_refine_min_train_epochs=max(
+                0, int(getattr(self.exp_config, "physics_refine_min_train_epochs", 50))
+            ),
+            physics_refine_steps=max(0, int(getattr(self.exp_config, "physics_refine_steps", 0))),
+            physics_refine_lr=float(getattr(self.exp_config, "physics_refine_lr", 2.0e-5)),
+            physics_refine_batch_size=max(
+                1, int(getattr(self.exp_config, "physics_refine_batch_size", 8))
+            ),
+            physics_refine_lambda_data=max(
+                0.0, float(getattr(self.exp_config, "physics_refine_lambda_data", 1.0e-6))
+            ),
+            physics_refine_lambda_bc=max(
+                0.0, float(getattr(self.exp_config, "physics_refine_lambda_bc", 1.0))
+            ),
+            physics_refine_lambda_neumann=max(
+                0.0, float(getattr(self.exp_config, "physics_refine_lambda_neumann", 1.0))
+            ),
+            physics_refine_patience=max(
+                0, int(getattr(self.exp_config, "physics_refine_patience", 120))
+            ),
+            physics_refine_min_delta=max(
+                0.0, float(getattr(self.exp_config, "physics_refine_min_delta", 1.0e-5))
+            ),
+            neumann_dy=hy,
             early_stop_on_nonfinite=bool(getattr(self.exp_config, "early_stop_on_nonfinite", True)),
         )
 
@@ -414,7 +450,7 @@ class PIGANPipeline:
                     batch_size=trainer_cfg.batch_size,
                 )
 
-        return FieldPIGANTrainer(
+        trainer = FieldPIGANTrainer(
             generator=self.generator,
             discriminator=self.discriminator,
             laplacian=self.laplacian,
@@ -427,7 +463,9 @@ class PIGANPipeline:
             config=trainer_cfg,
             device=self.device,
             logger=self.logger,
+            neumann_mask=self.neumann_mask,  # type: ignore[arg-type]
         )
+        return trainer
 
     def _evaluate(self) -> Dict[str, float]:
         """
@@ -442,7 +480,12 @@ class PIGANPipeline:
         """
         if self.trainer is None or self.laplacian is None:
             raise RuntimeError("Trainer e laplaciano são obrigatórios para avaliação.")
-        if self.reference_field is None or self.interior_mask is None or self.boundary_mask is None:
+        if (
+            self.reference_field is None
+            or self.interior_mask is None
+            or self.boundary_mask is None
+            or self.neumann_mask is None
+        ):
             raise RuntimeError("Referência e máscaras são obrigatórias para avaliação.")
 
         num_eval_samples = 1
@@ -458,6 +501,8 @@ class PIGANPipeline:
             self.laplacian,
             self.interior_mask,
             self.boundary_mask,
+            self.neumann_mask,
+            neumann_dy=float(self.exp_config.LY) / float(int(self.exp_config.grid_size_y) - 1),
         )
         metrics["relative_l2_error_vs_fdm"] = float(
             metrics.get("relative_l2_error", 0.0)
@@ -514,6 +559,24 @@ class PIGANPipeline:
             "adv_over_pde_start": float(adv_over_pde[0]) if adv_over_pde.size else 0.0,
             "adv_over_pde_end": float(adv_over_pde[-1]) if adv_over_pde.size else 0.0,
         }
+        finite_gate_mask = np.isfinite(adv_gate)
+        finite_gate = adv_gate[finite_gate_mask]
+        if finite_gate.size > 0:
+            finite_epochs = _series("epoch")[finite_gate_mask]
+            open_mask = finite_gate >= 0.95
+            partial_mask = finite_gate > 1e-6
+            health["adv_gate_closed_ratio"] = float(np.mean(finite_gate <= 1e-6))
+            health["adv_gate_mean"] = float(np.mean(finite_gate))
+            health["adv_gate_min"] = float(np.min(finite_gate))
+            health["adv_gate_max"] = float(np.max(finite_gate))
+            health["adv_gate_ever_opened"] = bool(np.any(open_mask))
+            health["adv_gate_never_opened"] = bool(not np.any(open_mask))
+            health["adv_gate_first_open_epoch"] = (
+                float(finite_epochs[open_mask][0]) if np.any(open_mask) else None
+            )
+            health["adv_gate_first_nonzero_epoch"] = (
+                float(finite_epochs[partial_mask][0]) if np.any(partial_mask) else None
+            )
         if residual_mean.size > 0:
             health["g_residual_mean_abs_start"] = float(residual_mean[0])
             health["g_residual_mean_abs_end"] = float(residual_mean[-1])
@@ -1284,9 +1347,6 @@ class PIGANPipeline:
 
         ax = axes[2, 0]
         g_pde = _series("g_pde")
-        g_bc = _series("g_bc")
-        g_residual_l2 = _series("g_residual_l2")
-        g_residual_mean_abs = _series("g_residual_mean_abs")
         phys_has_lines = False
         phys_has_lines |= _plot_if_relevant(ax, "g_pde", "G PDE")
         phys_has_lines |= _plot_if_relevant(
@@ -1601,6 +1661,15 @@ class PIGANPipeline:
             hx, hy = self._prepare_physics_fields()
             self.generator, self.discriminator = self._create_models()
             self.trainer = self._create_trainer(hx, hy)
+            self.trainer.experiment_config = asdict(self.exp_config)
+            hp_path = log_hyperparameters_at_start(
+                self.results_dir,
+                experiment_config=self.exp_config,
+                system_config=self.sys_config,
+                trainer_hyperparameters=self.trainer._paper_hyperparameters(),
+            )
+            if self.logger:
+                self.logger.info("Hiperparametros registrados", path=str(hp_path))
             self._baseline_metrics = None
 
             resume_path = getattr(self.exp_config, "resume_checkpoint", None)
@@ -1615,11 +1684,17 @@ class PIGANPipeline:
                         f"Checkpoint de retomada nao encontrado: {checkpoint_file}"
                     )
                 strict_resume = bool(getattr(self.exp_config, "strict_checkpoint_loading", True))
+                load_optimizer_state = bool(
+                    getattr(self.exp_config, "load_checkpoint_optimizer_state", True)
+                )
+                restore_rng_state = bool(
+                    getattr(self.exp_config, "restore_checkpoint_rng_state", True)
+                )
                 loaded_epoch, loaded_metrics = self.trainer.load_checkpoint(
                     checkpoint_file,
                     strict=strict_resume,
-                    load_optimizer_state=True,
-                    restore_rng_state=True,
+                    load_optimizer_state=load_optimizer_state,
+                    restore_rng_state=restore_rng_state,
                 )
                 if self.logger:
                     self.logger.info(
@@ -1652,6 +1727,31 @@ class PIGANPipeline:
             self._configure_adv_progressive_from_history()
             self._configure_precision_refine()
             history = self.trainer.train()
+            refine_history: List[Dict[str, float]] = []
+            if (
+                bool(getattr(self.exp_config, "physics_refine_enable", False))
+                and int(getattr(self.exp_config, "physics_refine_steps", 0)) > 0
+                and int(self.exp_config.epochs)
+                >= int(getattr(self.exp_config, "physics_refine_min_train_epochs", 50))
+            ):
+                refine_history = self.trainer.refine_physics()
+                if refine_history:
+                    history.extend(refine_history)
+                    if self.logger:
+                        self.logger.info(
+                            "Refinamento fisico final concluido",
+                            steps=len(refine_history),
+                            residual_mean_abs=f"{refine_history[-1].get('physics_refine_residual_mean_abs', 0.0):.4e}",
+                        )
+            elif self.logger and bool(getattr(self.exp_config, "physics_refine_enable", False)):
+                self.logger.info(
+                    "Refinamento fisico final ignorado",
+                    epochs=int(self.exp_config.epochs),
+                    min_train_epochs=int(
+                        getattr(self.exp_config, "physics_refine_min_train_epochs", 50)
+                    ),
+                    steps=int(getattr(self.exp_config, "physics_refine_steps", 0)),
+                )
             metrics = self._evaluate()
             self._save_results(metrics, history)
 

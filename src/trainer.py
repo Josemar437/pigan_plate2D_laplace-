@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Loop de treinamento para o PI-GAN de campo fisicamente consistente."""
 
 from __future__ import annotations
@@ -14,12 +14,15 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from src.config import ExperimentConfig
-from src.models import FieldDualDiscriminator, LaplacianLayer, UNetGenerator2D
-from src.physics.pde_residual import PDE_Residual_Computer
-from src.physics.domain_metrics import Domain_Metrics_Computer
-from src.training.loss_functions import PIGANLossComputation
-from src.training.adaptive_schemes import (
+from src.losses import adversarial as adv_losses
+from src.losses import physical as phys_losses
+from src.model.discriminator import FieldDualDiscriminator
+from src.model.generator import UNetGenerator2D
+from src.model.operators import LaplacianLayer
+from src.physics.pdeResidual import PDE_Residual_Computer
+from src.physics.domainMetrics import Domain_Metrics_Computer
+from src.training.lossFunctions import PIGANLossComputation
+from src.training.adaptiveSchemes import (
     AdaptiveLambdaPDE,
     GradNormBalancer,
     StagnationDetector,
@@ -27,19 +30,122 @@ from src.training.adaptive_schemes import (
 )
 
 
-# DEPRECATED: FieldTrainerConfig foi consolidado em ExperimentConfig (src/config.py)
-# Manter como alias por compatibilidade retroativa
-FieldTrainerConfig = ExperimentConfig
+@dataclass
+class FieldTrainerConfig:
+    """Configuração específica do loop de treino PI-GAN."""
 
+    epochs: int = 4000
+    steps_per_epoch: int = 1
+    batch_size: int = 16
+    n_critic: int = 3
+    disc_update_every: int = 1
+    gen_lr: float = 1.15e-4
+    disc_lr: float = 8.625e-5
+    betas: Tuple[float, float] = (0.5, 0.9)
+    weight_decay: float = 1e-5
+    lambda_adv1: float = 5.0e-2
+    lambda_adv2: float = 2.0e-2
+    lambda_pde: float = 37.0
+    lambda_bc: float = 0.0
+    lambda_neumann: float = 0.0
+    lambda_gp: float = 8.0
+    use_wgan_gp: bool = True
+    d1_real_noise_std: float = 0.0
+    d2_pair_noise_std: float = 5e-3
+    critic_drift: float = 5e-3
+    max_critic_gap: float = 11.0
+    critic_gap_penalty: float = 0.09
+    residual_tanh_scale: float = 0.0
+    use_tanh_on_residual: bool = False
+    dynamic_adv_balance: bool = True
+    target_adv_over_pde: float = 0.20
+    adv_scale_ema_beta: float = 0.9
+    adv_scale_min: float = 0.50
+    adv_scale_max: float = 20.0
+    pde_norm_ema_beta: float = 0.99
+    grad_clip: float = 1.85
+    generator_mode: str = "stochastic_pigan"
+    use_reference_discriminator: bool = True
+    save_frequency: int = 250
+    checkpoint_dir: Optional[str] = None
+    disc_lr_d1: Optional[float] = 8.625e-5
+    disc_lr_d2: Optional[float] = 8.625e-5
+    lambda_gp_d1: Optional[float] = 8.0
+    lambda_gp_d2: Optional[float] = 8.0
+    d1_real_residual_mode: str = "reference"
+    lambda_pde_raw: float = 0.0
+    residual_mean_abs_target: float = 1.0
+    adv_residual_gate_target: float = 0.01
+    adv_residual_gate_min: float = 0.09
+    adv_residual_gate_hysteresis: bool = True
+    adv_residual_gate_off_threshold: float = 1e-4
+    adv_residual_gate_power: float = 1.2
+    adv_warmup_epochs: int = 120
+    critic_pause_on_overgap: bool = True
+    critic_pause_gap_factor: float = 1.20
+    critic_resume_gap_factor: float = 0.36
+    adv_stagnation_boost: bool = True
+    adv_stagnation_patience: int = 50
+    adv_stagnation_rel_tol: float = 5e-3
+    adv_stagnation_boost_factor: float = 1.4
+    adv_stagnation_min_gate: float = 0.50
+    adv_stagnation_cooldown: int = 8
+    adv_progressive_enable: bool = False
+    adv_progressive_start_epoch: int = 0
+    adv_progressive_ramp_epochs: int = 600
+    adv_progressive_max_multiplier: float = 2.8
+    adv_progressive_power: float = 1.25
+    pde_corner_sampling_ratio: float = 0.10
+    pde_corner_band_points: int = 2
+    precision_refine_enable: bool = False
+    precision_refine_start_epoch: int = 0
+    precision_refine_n_critic: int = 3
+    precision_refine_n_critic_ramp_epochs: int = 500
+    precision_refine_lambda_pde_max_scale: float = 0.72
+    adaptive_lambda_pde: bool = True
+    residual_tolerance_target: float = 1e-3
+    residual_scale_reference: float = 1.0e-2
+    lambda_pde_growth_exponent: float = 0.60
+    lambda_pde_min: float = 19.0
+    lambda_pde_max: float = 98.0
+    lambda_pde_ema_beta: float = 0.9
+    gradnorm_balance: bool = True
+    gradnorm_target_adv_to_pde: float = 0.35
+    gradnorm_ema_beta: float = 0.9
+    gradnorm_scale_min: float = 0.05
+    gradnorm_scale_max: float = 1.0
+    divergence_window: int = 16
+    divergence_ratio_threshold: float = 1.2
+    divergence_patience: int = 2
+    lr_drop_factor: float = 0.5
+    max_lr_drops: int = 10
+    plateau_scheduler_enabled: bool = True
+    plateau_metric_key: str = "g_residual_mean_abs"
+    plateau_mode: str = "min"
+    plateau_patience: int = 40
+    plateau_factor: float = 0.5
+    plateau_min_delta: float = 1e-5
+    plateau_cooldown: int = 10
+    plateau_max_drops: int = 10
+    plateau_reduce_discriminators: bool = True
+    activation_abs_limit: float = 1e6
+    residual_hist_bins: int = 12
+    early_stop_on_nonfinite: bool = True
+    physics_refine_enable: bool = False
+    physics_refine_min_train_epochs: int = 50
+    physics_refine_steps: int = 0
+    physics_refine_lr: float = 2.0e-5
+    physics_refine_batch_size: int = 8
+    physics_refine_lambda_data: float = 1.0e-6
+    physics_refine_lambda_bc: float = 1.0
+    physics_refine_lambda_neumann: float = 1.0
+    physics_refine_patience: int = 120
+    physics_refine_min_delta: float = 1.0e-5
+    neumann_dy: float = 1.0
 
-# === CONFIGURAÇÃO LEGADO (REMOVIDA) ===
-# @dataclass
-# class FieldTrainerConfig:
-# === CONFIGURAÇÃO LEGADO (REMOVIDA) ===
-# @dataclass
-# class FieldTrainerConfig:
-#     """Consolidado em ExperimentConfig (src/config.py)"""
-#     pass
+    @property
+    def lambda_drift(self) -> float:
+        return float(self.critic_drift)
 
 
 def _set_requires_grad(module: nn.Module, requires_grad: bool) -> None:
@@ -52,42 +158,6 @@ def _set_requires_grad(module: nn.Module, requires_grad: bool) -> None:
     """
     for p in module.parameters():
         p.requires_grad_(requires_grad)
-
-
-def _gradient_penalty(
-    discriminator: nn.Module,
-    real_samples: torch.Tensor,
-    fake_samples: torch.Tensor,
-) -> torch.Tensor:
-    """
-    Calcula a penalidade de gradiente (Gradient Penalty) para WGAN-GP.
-
-    Parâmetros:
-        discriminator: O modelo discriminador.
-        real_samples: Lote de amostras reais.
-        fake_samples: Lote de amostras geradas.
-
-    Retorno:
-        Valor escalar da penalidade de gradiente.
-    """
-    batch_size = real_samples.size(0)
-    alpha = torch.rand(batch_size, 1, 1, 1, device=real_samples.device, dtype=real_samples.dtype)
-    interpolates = alpha * real_samples + (1.0 - alpha) * fake_samples
-    interpolates.requires_grad_(True)
-
-    d_interpolates = discriminator(interpolates)
-    grad_outputs = torch.ones_like(d_interpolates)
-    gradients = torch.autograd.grad(
-        outputs=d_interpolates,
-        inputs=interpolates,
-        grad_outputs=grad_outputs,
-        create_graph=True,
-        retain_graph=True,
-        only_inputs=True,
-    )[0]
-
-    gradients = gradients.view(batch_size, -1)
-    return ((gradients.norm(2, dim=1) - 1.0) ** 2).mean()
 
 
 def _global_grad_norm(parameters: List[torch.Tensor]) -> torch.Tensor:
@@ -134,6 +204,7 @@ class FieldPIGANTrainer:
         config: FieldTrainerConfig,
         device: torch.device,
         logger: Optional[Any] = None,
+        neumann_mask: Optional[torch.Tensor] = None,
     ):
         """
         Inicializa o treinador FieldPIGANTrainer.
@@ -162,10 +233,17 @@ class FieldPIGANTrainer:
         self.reference_field = reference_field.to(device)
         self.interior_mask = interior_mask.to(device)
         self.boundary_mask = boundary_mask.to(device)
+        if neumann_mask is None:
+            neumann_mask = torch.zeros_like(self.boundary_mask)
+            neumann_mask[:, :, 0, 1:-1] = 1.0
+            neumann_mask[:, :, -1, 1:-1] = 1.0
+        self.neumann_mask = neumann_mask.to(device)
 
         self.cfg = config
         self.device = device
         self.logger = logger
+        self.experiment_config: Optional[Dict[str, Any]] = None
+        self._loss_history: List[Dict[str, float]] = []
 
         self.opt_g = optim.Adam(
             self.generator.parameters(),
@@ -241,8 +319,7 @@ class FieldPIGANTrainer:
         self._stop_requested = False
         self._stop_reason = ""
 
-        # === NOVOS COMPONENTES REFATORADOS ===
-        # Inicializar computadores de PDE e métricas
+        # Componentes refatorados mantidos para compatibilidade e proxima integracao.
         self.pde_computer = PDE_Residual_Computer(
             grid_size_x=int(base_field.shape[-1]),
             grid_size_y=int(base_field.shape[-2]),
@@ -250,14 +327,12 @@ class FieldPIGANTrainer:
         )
         self.domain_metrics_computer = Domain_Metrics_Computer(device=device)
         
-        # Inicializar computador centralizado de perdas
         self.loss_computer = PIGANLossComputation(
             grid_size_x=int(base_field.shape[-1]),
             grid_size_y=int(base_field.shape[-2]),
             use_gpu=(device.type == "cuda"),
         )
         
-        # Inicializar adaptadores dinâmicos
         self.lambda_pde_adapter = AdaptiveLambdaPDE(
             lambda_pde_min=float(getattr(config, "lambda_pde_min", 19.0)),
             lambda_pde_max=float(getattr(config, "lambda_pde_max", 98.0)),
@@ -361,6 +436,9 @@ class FieldPIGANTrainer:
     def _restore_rng_state(state: Dict[str, Any], device: torch.device) -> None:
         cpu_state = state.get("torch_cpu")
         if cpu_state is not None:
+            if not isinstance(cpu_state, torch.Tensor):
+                cpu_state = torch.as_tensor(cpu_state, dtype=torch.uint8)
+            cpu_state = cpu_state.detach().cpu().to(dtype=torch.uint8)
             torch.set_rng_state(cpu_state)
         cuda_state = state.get("torch_cuda")
         if (
@@ -368,6 +446,12 @@ class FieldPIGANTrainer:
             and device.type == "cuda"
             and torch.cuda.is_available()
         ):
+            cuda_state = [
+                item.detach().cpu().to(dtype=torch.uint8)
+                if isinstance(item, torch.Tensor)
+                else torch.as_tensor(item, dtype=torch.uint8)
+                for item in list(cuda_state)
+            ]
             torch.cuda.set_rng_state_all(cuda_state)
         numpy_state = FieldPIGANTrainer._deserialize_numpy_state(state.get("numpy"))
         if numpy_state is not None:
@@ -486,12 +570,28 @@ class FieldPIGANTrainer:
     def _boundary_mse(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         diff_sq = (pred - target) ** 2
         num = (diff_sq * self.boundary_mask).sum()
-        den = self.boundary_mask.sum() + 1e-12
+        den = self.boundary_mask.sum() * float(max(1, int(pred.shape[0]))) + 1e-12
         return num / den
 
     def _boundary_max_abs_error(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         diff_abs = (pred - target).abs() * self.boundary_mask
         return diff_abs.max()
+
+    def _neumann_residual(self, T0: torch.Tensor) -> torch.Tensor:
+        """Derivada normal discreta — Neumann NÃO é imposto como restrição forte em T0."""
+        dy = max(float(getattr(self.cfg, "neumann_dy", 1.0)), 1e-12)
+        return phys_losses.neumann_residual(T0, dy=dy)
+
+    def _neumann_mse(self, T0: torch.Tensor) -> torch.Tensor:
+        # Neumann: penalização indireta + referência FDM (D2), não hard constraint.
+        return phys_losses.neumann_loss(
+            T0,
+            self.neumann_mask,
+            dy=max(float(getattr(self.cfg, "neumann_dy", 1.0)), 1e-12),
+        )
+
+    def _neumann_max_abs_error(self, T0: torch.Tensor) -> torch.Tensor:
+        return (self._neumann_residual(T0).abs() * self.neumann_mask).max()
 
     def _interior_denominator(self, residual: torch.Tensor) -> torch.Tensor:
         batch = max(1, int(residual.shape[0]))
@@ -548,11 +648,13 @@ class FieldPIGANTrainer:
             float(corner_mass_effective),
         )
 
-    def _pde_training_mean_abs(self, residual: torch.Tensor) -> torch.Tensor:
-        """Média absoluta do resíduo PDE com foco ponderado em cantos."""
-        num = (residual.abs() * self._pde_train_weight_map).sum()
-        den = self._pde_train_weight_sum * float(max(1, int(residual.shape[0]))) + 1e-12
-        return num / den
+    def _pde_training_mean_abs(self, R0: torch.Tensor) -> torch.Tensor:
+        """L_PDE = E[|R0|] no interior (mapa de pesos opcional em cantos)."""
+        return phys_losses.loss_pde_weighted(
+            R0,
+            self._pde_train_weight_map,
+            self._pde_train_weight_sum,
+        )
 
     def _pde_mse(self, residual: torch.Tensor) -> torch.Tensor:
         residual_rms = self._residual_l2(residual).detach().item()
@@ -806,6 +908,10 @@ class FieldPIGANTrainer:
         den = self._interior_denominator(residual)
         return torch.sqrt(((residual ** 2) * self.interior_mask).sum() / den)
 
+    def _residual_mse(self, residual: torch.Tensor) -> torch.Tensor:
+        den = self._interior_denominator(residual)
+        return ((residual ** 2) * self.interior_mask).sum() / den
+
     def _format_residual_for_d1(self, residual: torch.Tensor) -> torch.Tensor:
         """
         Normaliza e formata o campo de resíduos para entrada no discriminador D1.
@@ -851,7 +957,7 @@ class FieldPIGANTrainer:
     ) -> torch.Tensor:
         if not bool(self.cfg.use_wgan_gp) or gp_weight <= 0.0:
             return self._zero_scalar(dtype=real.dtype)
-        return _gradient_penalty(forward_fn, real, fake)
+        return adv_losses.gradient_penalty(forward_fn, real, fake)
 
     def _adv_warmup_factor(self) -> float:
         warmup_epochs = max(0, int(getattr(self.cfg, "adv_warmup_epochs", 0)))
@@ -1107,20 +1213,16 @@ class FieldPIGANTrainer:
             residual_fake.detach(),
             gp_weight,
         )
-        d1_drift = float(self.cfg.critic_drift) * (
-            d1_real_score.pow(2).mean() + d1_fake_score.pow(2).mean()
-        )
-        d1_gap = d1_real_score.mean() - d1_fake_score.mean()
-        d1_gap_excess = torch.relu(d1_gap.abs() - float(self.cfg.max_critic_gap))
-        d1_gap_penalty = float(self.cfg.critic_gap_penalty) * d1_gap_excess.pow(2)
-
-        # Objetivo do crítico WGAN implementado como minimização:
-        # L_Df = E[D_f(fake)] - E[D_f(real)] + lambda_gp*GP_f + drift
-        d1_loss = (
-            (d1_fake_score.mean() - d1_real_score.mean())
-            + gp_weight * gp
-            + d1_drift
-            + d1_gap_penalty
+        lambda_drift = float(getattr(self.cfg, "lambda_drift", self.cfg.critic_drift))
+        # L_D1 = E[D1(fake)] - E[D1(real)] + lambda_gp*GP1 + lambda_drift*drift + gap_penalty
+        d1_loss, d1_gap, d1_gap_penalty, d1_drift = adv_losses.discriminator_loss_wgan_gp(
+            d1_real_score,
+            d1_fake_score,
+            gp,
+            lambda_gp=gp_weight,
+            lambda_drift=lambda_drift,
+            max_critic_gap=float(self.cfg.max_critic_gap),
+            critic_gap_penalty=float(self.cfg.critic_gap_penalty),
         )
         d1_loss.backward()
 
@@ -1191,20 +1293,16 @@ class FieldPIGANTrainer:
             pair_fake.detach(),
             gp_weight,
         )
-        d2_drift = float(self.cfg.critic_drift) * (
-            d2_real_score.pow(2).mean() + d2_fake_score.pow(2).mean()
-        )
-        d2_gap = d2_real_score.mean() - d2_fake_score.mean()
-        d2_gap_excess = torch.relu(d2_gap.abs() - float(self.cfg.max_critic_gap))
-        d2_gap_penalty = float(self.cfg.critic_gap_penalty) * d2_gap_excess.pow(2)
-
-        # Objetivo WGAN do discriminador de dados:
-        # L_Dd = E[D_d(fake)] - E[D_d(real)] + lambda_gp*GP_d + drift
-        d2_loss = (
-            (d2_fake_score.mean() - d2_real_score.mean())
-            + gp_weight * gp
-            + d2_drift
-            + d2_gap_penalty
+        lambda_drift = float(getattr(self.cfg, "lambda_drift", self.cfg.critic_drift))
+        # L_D2 = E[D2(fake)] - E[D2(real)] + lambda_gp*GP2 + lambda_drift*drift + gap_penalty
+        d2_loss, d2_gap, d2_gap_penalty, d2_drift = adv_losses.discriminator_loss_wgan_gp(
+            d2_real_score,
+            d2_fake_score,
+            gp,
+            lambda_gp=gp_weight,
+            lambda_drift=lambda_drift,
+            max_critic_gap=float(self.cfg.max_critic_gap),
+            critic_gap_penalty=float(self.cfg.critic_gap_penalty),
         )
         d2_loss.backward()
 
@@ -1255,29 +1353,41 @@ class FieldPIGANTrainer:
         z = self._sample_latent(base.size(0), deterministic=adv_disabled)
         coords = self._expand_coords(base.size(0))
 
-        pred = self.generator(base, phi, z=z, coord_field=coords)
-        residual = self.laplacian(pred)
-        residual_for_d1 = self._format_residual_for_d1(residual)
+        # T0 = g + phi * N0 — campo candidato do gerador
+        T0 = self.generator(base, phi, z=z, coord_field=coords)
+        R0 = self.laplacian(T0)
+        residual_for_d1 = self._format_residual_for_d1(R0)
 
-        g_adv1 = self._zero_scalar(dtype=pred.dtype)
+        loss_adv1 = self._zero_scalar(dtype=T0.dtype)
         if float(self.cfg.lambda_adv1) > 0.0:
-            g_adv1 = -self.discriminator.forward_physics(residual_for_d1).mean()
-        g_adv2 = self._zero_scalar(dtype=pred.dtype)
+            loss_adv1 = adv_losses.generator_adversarial_loss(
+                self.discriminator.forward_physics(residual_for_d1)
+            )
+        loss_adv2 = self._zero_scalar(dtype=T0.dtype)
         if bool(getattr(self.cfg, "use_reference_discriminator", True)) and (
             float(self.cfg.lambda_adv2) > 0.0
         ):
-            g_adv2 = -self.discriminator.forward_data(torch.cat([pred, ref], dim=1)).mean()
+            loss_adv2 = adv_losses.generator_adversarial_loss(
+                self.discriminator.forward_data(torch.cat([T0, ref], dim=1))
+            )
+        g_adv1 = loss_adv1
+        g_adv2 = loss_adv2
+        pred = T0
+        residual = R0
         # Mantém métrica PDE normalizada para diagnóstico, mas otimiza o resíduo bruto.
         g_pde = self._pde_mse(residual)
         g_bc = self._boundary_mse(pred, ref)
         g_bc_max = self._boundary_max_abs_error(pred, ref)
+        g_neumann = self._neumann_mse(pred)
+        g_neumann_max = self._neumann_max_abs_error(pred)
         g_residual_l2 = self._residual_l2(residual)
         g_residual_mean_abs = self._residual_mean_abs(residual)
         g_residual_max_abs = self._residual_max_abs(residual)
         g_pred_max_abs = pred.detach().abs().max()
 
-        # Objetivo físico bruto com equivalente de amostragem focada em cantos.
-        g_pde_raw = self._pde_training_mean_abs(residual)
+        # L_PDE = E[|R0|] no interior (objetivo físico bruto do gerador).
+        loss_pde = self._pde_training_mean_abs(residual)
+        g_pde_raw = loss_pde
         residual_mean_abs_target = max(float(getattr(self.cfg, "residual_mean_abs_target", 0.0)), 0.0)
         g_pde_raw_penalty = g_pde_raw
         if residual_mean_abs_target > 0.0:
@@ -1288,7 +1398,7 @@ class FieldPIGANTrainer:
         # Objetivo do gerador (minimização) a partir da formulação min-max da PI-GAN:
         # L_G = lambda_adv_f*(-E[D_f(fake)])
         #     + lambda_adv_d*(-E[D_d(fake)])
-        #     + lambda_pde*L_PDE_raw + lambda_bc*L_BC
+        #     + lambda_pde*L_PDE_raw + lambda_bc*L_BC + lambda_neumann*L_N
         adv_scale = 1.0
         base_adv1 = float(self.cfg.lambda_adv1)
         base_adv2 = float(self.cfg.lambda_adv2)
@@ -1324,7 +1434,8 @@ class FieldPIGANTrainer:
             params=params,
         )
         adv_term = adv_grad_scale * adv_term_base
-        g_loss = pde_term + adv_term + float(self.cfg.lambda_bc) * g_bc
+        neumann_term = float(getattr(self.cfg, "lambda_neumann", 0.0)) * g_neumann
+        g_loss = pde_term + adv_term + float(self.cfg.lambda_bc) * g_bc + neumann_term
         self._check_loss_finiteness(
             g_loss=g_loss,
             g_pde_raw=g_pde_raw_penalty,
@@ -1343,6 +1454,9 @@ class FieldPIGANTrainer:
 
         metrics = {
             "g_total": float(g_loss.item()),
+            "loss_adv1": float(loss_adv1.item()),
+            "loss_adv2": float(loss_adv2.item()),
+            "loss_pde": float(loss_pde.item()),
             "g_adv1": float(g_adv1.item()),
             "g_adv2": float(g_adv2.item()),
             "g_pde": float(g_pde.item()),
@@ -1351,6 +1465,9 @@ class FieldPIGANTrainer:
             "g_pde_raw_excess": float(g_pde_raw_excess.item()),
             "g_bc": float(g_bc.item()),
             "g_bc_max_abs": float(g_bc_max.item()),
+            "g_neumann": float(g_neumann.item()),
+            "g_neumann_max_abs": float(g_neumann_max.item()),
+            "g_neumann_term": float(neumann_term.item()),
             "g_adv_over_pde": float(adv_mag / pde_mag),
             "g_adv_scale": float(adv_scale),
             "g_adv_boost_multiplier": float(self._last_adv_boost_multiplier),
@@ -1390,6 +1507,20 @@ class FieldPIGANTrainer:
             merged[key] = float(np.mean([m[key] for m in metric_list]))
         return merged
 
+    def _paper_hyperparameters(self) -> Dict[str, float]:
+        """Hiperparâmetros da formulação WGAN-GP / PI-GAN (notação do artigo)."""
+        return {
+            "lambda_gp": float(self.cfg.lambda_gp),
+            "lambda_drift": float(getattr(self.cfg, "lambda_drift", self.cfg.critic_drift)),
+            "lambda_gap": float(self.cfg.critic_gap_penalty),
+            "max_critic_gap": float(self.cfg.max_critic_gap),
+            "critic_gap_penalty": float(self.cfg.critic_gap_penalty),
+            "lambda_adv1": float(self.cfg.lambda_adv1),
+            "lambda_adv2": float(self.cfg.lambda_adv2),
+            "lambda_pde": float(self.cfg.lambda_pde),
+            "lambda_neumann": float(getattr(self.cfg, "lambda_neumann", 0.0)),
+        }
+
     def save_checkpoint(
         self, filepath: Path, epoch: int, metrics: Dict[str, float]
     ) -> None:
@@ -1414,6 +1545,17 @@ class FieldPIGANTrainer:
             },
             "metrics": {k: float(v) for k, v in metrics.items()},
             "config": asdict(self.cfg),
+            "experiment_config": dict(self.experiment_config or {}),
+            "hyperparameters": self._paper_hyperparameters(),
+            "loss_history": list(self._loss_history),
+            "lr_control_state": {
+                "plateau_best": self._plateau_best,
+                "plateau_bad_epochs": int(self._plateau_bad_epochs),
+                "plateau_drop_count": int(self._plateau_drop_count),
+                "plateau_cooldown_counter": int(self._plateau_cooldown_counter),
+                "lr_drop_count": int(self._lr_drop_count),
+                "divergence_streak": int(self._divergence_streak),
+            },
             "rng_state": self._capture_rng_state(self.device),
             "control_state": {
                 "adv_scale_ema": float(self._adv_scale_ema),
@@ -1558,6 +1700,32 @@ class FieldPIGANTrainer:
                 )
             )
 
+        lr_control = checkpoint.get("lr_control_state")
+        if isinstance(lr_control, dict):
+            if "plateau_best" in lr_control:
+                self._plateau_best = lr_control.get("plateau_best")
+            self._plateau_bad_epochs = int(
+                lr_control.get("plateau_bad_epochs", self._plateau_bad_epochs)
+            )
+            self._plateau_drop_count = int(
+                lr_control.get("plateau_drop_count", self._plateau_drop_count)
+            )
+            self._plateau_cooldown_counter = int(
+                lr_control.get("plateau_cooldown_counter", self._plateau_cooldown_counter)
+            )
+            self._lr_drop_count = int(lr_control.get("lr_drop_count", self._lr_drop_count))
+            self._divergence_streak = int(
+                lr_control.get("divergence_streak", self._divergence_streak)
+            )
+
+        loss_history = checkpoint.get("loss_history")
+        if isinstance(loss_history, list):
+            self._loss_history = [
+                {str(k): float(v) for k, v in item.items()}
+                for item in loss_history
+                if isinstance(item, dict)
+            ]
+
         epoch = int(checkpoint["epoch"])
         metrics_raw = checkpoint.get("metrics", {})
         metrics: Dict[str, float] = {}
@@ -1677,6 +1845,11 @@ class FieldPIGANTrainer:
         epochs = int(self.cfg.epochs)
         steps = max(1, int(self.cfg.steps_per_epoch))
         first_epoch = max(1, int(self.start_epoch))
+        if first_epoch == 1 and self.logger:
+            self.logger.info(
+                "Hiperparametros PI-GAN (inicio do treino)",
+                **{k: float(v) for k, v in self._paper_hyperparameters().items()},
+            )
         if first_epoch > epochs:
             if self.logger:
                 self.logger.warning(
@@ -1746,6 +1919,7 @@ class FieldPIGANTrainer:
             summary["lr_drop_triggered"] = float(lr_drop_triggered)
             summary["lr_plateau_triggered"] = float(lr_plateau_triggered)
             history.append(summary)
+            self._loss_history.append(dict(summary))
             if epoch_callback is not None:
                 epoch_callback(summary)
 
@@ -1813,6 +1987,138 @@ class FieldPIGANTrainer:
                     residual_mean_abs=f"{last_residual:.4e}",
                     tolerance_target=f"{target:.4e}",
                 )
+        return history
+
+    def refine_physics(self) -> List[Dict[str, float]]:
+        """
+        Executa uma fase final puramente física para reduzir o residual discreto.
+
+        A fase congela os discriminadores e otimiza apenas o gerador contra o
+        Laplaciano bruto, mantendo um termo fraco de ancoragem na referência.
+        """
+        steps = max(0, int(getattr(self.cfg, "physics_refine_steps", 0)))
+        if (not bool(getattr(self.cfg, "physics_refine_enable", False))) or steps <= 0:
+            return []
+
+        was_training = self.generator.training
+        self.generator.train()
+        self.discriminator.eval()
+        _set_requires_grad(self.discriminator.physics_discriminator, False)
+        _set_requires_grad(self.discriminator.data_discriminator, False)
+
+        optimizer = optim.Adam(
+            self.generator.parameters(),
+            lr=float(getattr(self.cfg, "physics_refine_lr", self.cfg.gen_lr)),
+            betas=tuple(self.cfg.betas),
+            weight_decay=0.0,
+        )
+        batch_size = max(1, int(getattr(self.cfg, "physics_refine_batch_size", 1)))
+        lambda_data = max(0.0, float(getattr(self.cfg, "physics_refine_lambda_data", 0.0)))
+        lambda_bc = max(0.0, float(getattr(self.cfg, "physics_refine_lambda_bc", 0.0)))
+        lambda_neumann = max(0.0, float(getattr(self.cfg, "physics_refine_lambda_neumann", 0.0)))
+        patience = max(0, int(getattr(self.cfg, "physics_refine_patience", 0)))
+        min_delta = max(0.0, float(getattr(self.cfg, "physics_refine_min_delta", 0.0)))
+        target = max(float(getattr(self.cfg, "residual_tolerance_target", 1e-3)), 1e-12)
+        history: List[Dict[str, float]] = []
+        best_residual = float("inf")
+        bad_steps = 0
+
+        if self.logger:
+            self.logger.info(
+                "Refinamento fisico final iniciado",
+                steps=steps,
+                lr=f"{float(getattr(self.cfg, 'physics_refine_lr', self.cfg.gen_lr)):.2e}",
+                batch_size=batch_size,
+                target=f"{target:.4e}",
+            )
+
+        for step in range(1, steps + 1):
+            optimizer.zero_grad(set_to_none=True)
+            base = self._expand(self.base_field, batch_size)
+            phi = self._expand(self.phi_mask, batch_size)
+            ref = self._expand(self.reference_field, batch_size)
+            coords = self._expand_coords(batch_size)
+            z = self._sample_latent(batch_size)
+
+            pred = self.generator(base, phi, z=z, coord_field=coords)
+            residual = self.laplacian(pred)
+            residual_mse = self._residual_mse(residual)
+            residual_mean_abs = self._residual_mean_abs(residual)
+            residual_l2 = torch.sqrt(residual_mse + 1e-12)
+            data_mse = ((pred - ref) ** 2 * self.interior_mask).sum() / self._interior_denominator(pred)
+            bc_mse = self._boundary_mse(pred, ref)
+            neumann_mse = self._neumann_mse(pred)
+            loss = (
+                residual_mse
+                + lambda_data * data_mse
+                + lambda_bc * bc_mse
+                + lambda_neumann * neumann_mse
+            )
+            self._check_loss_finiteness(
+                g_loss=loss,
+                g_pde_raw=residual_mean_abs,
+                g_adv1=self._zero_scalar(dtype=pred.dtype),
+                g_adv2=self._zero_scalar(dtype=pred.dtype),
+            )
+            loss.backward()
+            params = list(self.generator.parameters())
+            grad_norm = _global_grad_norm(params)
+            self._clip(params)
+            optimizer.step()
+
+            residual_value = float(residual_mean_abs.detach().item())
+            item = {
+                "epoch": float(int(self.cfg.epochs) + step),
+                "physics_refine_step": float(step),
+                "physics_refine_loss": float(loss.detach().item()),
+                "physics_refine_residual_mean_abs": residual_value,
+                "physics_refine_residual_l2": float(residual_l2.detach().item()),
+                "physics_refine_data_mse": float(data_mse.detach().item()),
+                "physics_refine_bc_mse": float(bc_mse.detach().item()),
+                "physics_refine_grad_norm": float(grad_norm.detach().item()),
+                "g_residual_mean_abs": residual_value,
+                "g_residual_l2": float(residual_l2.detach().item()),
+                "g_pde_raw": residual_value,
+                "g_total": float(loss.detach().item()),
+                "lr_g": float(optimizer.param_groups[0]["lr"]),
+            }
+            history.append(item)
+
+            if residual_value + min_delta < best_residual:
+                best_residual = residual_value
+                bad_steps = 0
+            else:
+                bad_steps += 1
+
+            if self.logger and (step == 1 or step % 50 == 0 or step == steps):
+                self.logger.info(
+                    "Refinamento fisico",
+                    step=f"{step}/{steps}",
+                    residual_mean_abs=f"{residual_value:.4e}",
+                    residual_l2=f"{float(residual_l2.detach().item()):.4e}",
+                    loss=f"{float(loss.detach().item()):.4e}",
+                )
+
+            if residual_value <= target:
+                if self.logger:
+                    self.logger.info(
+                        "Refinamento fisico atingiu a tolerancia alvo",
+                        step=step,
+                        residual_mean_abs=f"{residual_value:.4e}",
+                        tolerance_target=f"{target:.4e}",
+                    )
+                break
+            if patience > 0 and bad_steps >= patience:
+                if self.logger:
+                    self.logger.info(
+                        "Refinamento fisico encerrado por plateau",
+                        step=step,
+                        best_residual=f"{best_residual:.4e}",
+                    )
+                break
+
+        if not was_training:
+            self.generator.eval()
         return history
 
     @torch.no_grad()

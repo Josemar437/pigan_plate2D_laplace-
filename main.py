@@ -1,29 +1,32 @@
 ﻿# -*- coding: utf-8 -*-
-"""
-Script principal para execução do pipeline PI-GAN.
-
-Esta implementação corresponde a uma PI-GAN híbrida, definida como uma rede
-adversarial generativa informada pela física, com penalização explícita do
-resíduo da PDE e regularização adversarial.
-"""
+"""CLI do treino PI-GAN Laplace 2D definido em `src/pipeline.py`."""
 
 import argparse
+import json
+from dataclasses import fields
+from pathlib import Path
 
 from src.config import ExperimentConfig, SystemConfig
 from src.pipeline import PIGANPipeline
 
 
+def _load_config_payload(config_path: str | None) -> dict:
+    """Carrega um JSON de configuração, quando informado."""
+    if not config_path:
+        return {}
+    return json.loads(Path(config_path).read_text(encoding="utf-8"))
+
+
+def _config_kwargs(payload: dict, config_type: type) -> dict:
+    """Filtra chaves do JSON para os campos aceitos pelo dataclass informado."""
+    valid_fields = {field.name for field in fields(config_type)}
+    return {key: value for key, value in payload.items() if key in valid_fields}
+
+
 def _build_experiment_config(args: argparse.Namespace) -> ExperimentConfig:
-    """
-    Constrói a configuração do experimento com base nos argumentos da CLI.
-
-    Parâmetros:
-        args: Argumentos parseados da linha de comando.
-
-    Retorno:
-        Um objeto ExperimentConfig configurado.
-    """
-    config_kwargs = {}
+    """Mescla JSON, overrides da CLI e validacao de `ExperimentConfig`."""
+    payload = _load_config_payload(getattr(args, "config", None))
+    config_kwargs = _config_kwargs(payload, ExperimentConfig)
     if args.generator_mode is not None:
         config_kwargs["generator_mode"] = str(args.generator_mode)
     config = ExperimentConfig(**config_kwargs)
@@ -41,11 +44,34 @@ def _build_experiment_config(args: argparse.Namespace) -> ExperimentConfig:
     return config
 
 
+def _build_system_config(args: argparse.Namespace) -> SystemConfig:
+    """Constrói a configuração de sistema a partir de JSON e overrides da CLI."""
+    payload = _load_config_payload(getattr(args, "config", None))
+    system_kwargs = {
+        "log_file": "runs/logs/training.log",
+        "use_double": True,
+    }
+    system_kwargs.update(_config_kwargs(payload, SystemConfig))
+
+    if getattr(args, "seed", None) is not None:
+        system_kwargs["seed"] = int(args.seed)
+    if getattr(args, "deterministic", None) is not None:
+        system_kwargs["deterministic_run"] = bool(args.deterministic)
+    if bool(getattr(args, "deterministic_warn_only", False)):
+        system_kwargs["deterministic_warn_only"] = True
+
+    return SystemConfig(**system_kwargs)
+
+
 def main() -> None:
-    """
-    Ponto de entrada principal para o treinamento e avaliação da PI-GAN.
-    """
+    """Executa treino, avaliacao e escrita de artefatos em `runs/`."""
     parser = argparse.ArgumentParser(description="Pipeline PI-GAN para Calor 2D")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Arquivo JSON com parâmetros de ExperimentConfig/SystemConfig.",
+    )
     parser.add_argument(
         "--generator-mode",
         type=str,
@@ -111,16 +137,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    system_kwargs = {
-        "log_file": "runs/logs/training.log",
-        "seed": int(args.seed),
-        "use_double": True,
-    }
-    if args.deterministic is not None:
-        system_kwargs["deterministic_run"] = bool(args.deterministic)
-    if bool(args.deterministic_warn_only):
-        system_kwargs["deterministic_warn_only"] = True
-    system_config = SystemConfig(**system_kwargs)
+    system_config = _build_system_config(args)
     experiment_config = _build_experiment_config(args)
 
     pipeline = PIGANPipeline(experiment_config, system_config)
