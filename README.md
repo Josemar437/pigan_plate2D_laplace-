@@ -1,114 +1,81 @@
-# PI-GAN 2D Laplace - contrato tecnico da versao atual
+# PI-GAN para Laplace 2D em Placa Plana
 
-Ultima revisao: 2026-05-24.
+Implementação em PyTorch de uma Physics-Informed GAN para resolver a equação de Laplace
+estacionária em uma placa retangular 2D. O projeto combina restrição física explícita,
+referência numérica FDM-SOR e treinamento adversarial com dois discriminadores para avaliar
+campo térmico e consistência do residual.
 
-Este repositorio treina uma PI-GAN para a equacao de Laplace 2D estacionaria em placa retangular. O caminho de execucao oficial e:
+O repositório foi organizado para experimentos reprodutíveis de TCC/pesquisa: o treino grava
+resultados, métricas, figuras e checkpoints em `runs/`, salva histórico completo, compara a
+solução neural contra uma referência FDM e expõe scripts para busca de hiperparâmetros com
+Optuna.
 
-```text
-main.py (ou train.py) -> src/pipeline.py -> src/model/* + src/losses/* + src/trainer.py -> runs/
-```
+## Problema Físico
 
-O treino usa uma solucao FDM-SOR interna como referencia numerica. Essa referencia alimenta o discriminador de dados (`D2`) e as metricas finais; ela nao substitui a penalizacao explicita do residuo `nabla^2 T`.
-
-Nota: na configuracao atual, `D2` deve ser lido como regularizador auxiliar supervisionado por FDM, nao como prova de aprendizado adversarial puro. A consistencia fisica vem principalmente do residual discreto e do discriminador fisico (`D1`). O refinamento fisico final existe, mas fica desligado por padrao e deve ser tratado como ablation declarada.
-
-## Problema Implementado
-
-Dominio:
+O domínio implementado é:
 
 ```text
 Omega = [0, LX] x [0, LY]
-nabla^2 T = 0 no interior
-T = g na fronteira de Dirichlet
+nabla² T = 0 no interior
+T(0, y) = T_LEFT
+T(LX, y) = T_RIGHT
+dT/dn = 0 nas bordas inferior e superior
 ```
 
-O gerador usa restricao forte de contorno:
+Por padrão:
+
+```text
+LX = LY = 1.0
+T_LEFT = 200.0
+T_RIGHT = 100.0
+malha = 32 x 32
+```
+
+A condição de Dirichlet lateral é imposta por restrição forte:
 
 ```text
 T_theta(x, y, z) = g(x, y) + phi(x, y) * N_theta(x, y, z)
 ```
 
-`src/utils.py` constroi `g` como extensao linear das bordas laterais de Dirichlet e constroi `phi` com valor zero nas laterais. Quando `hard_constraint_bc=True`, `lambda_bc=0.0` porque a condicao de Dirichlet lateral ja esta embutida na parametrizacao. As bordas inferior e superior usam Neumann homogeneo, imposto por `lambda_neumann` no treino e pela referencia FDM mista.
+Isso faz `T_theta` respeitar exatamente as laterais de Dirichlet quando
+`hard_constraint_bc=True`. Por isso `lambda_bc=0.0` no treino padrão. As bordas inferior e
+superior são tratadas como Neumann homogêneo via `lambda_neumann`.
 
-## Modulos Ativos No Treino
+## Como O Método Está Montado
 
-`src/pipeline.py`
-
-- monta a malha cartesiana;
-- cria `base_field`, `phi_mask`, mascaras de interior/fronteira e coordenadas;
-- resolve a referencia FDM-SOR com `src/fdm.py`;
-- instancia modelos e `FieldPIGANTrainer`;
-- salva metricas, arrays, figuras e checkpoints.
-
-`src/model/generator.py`
-
-- `UNetGenerator2D`: `T0 = g + phi * N0` (nomes `g`, `phi`, `N0`, `T0`); coordenadas e latente opcionais;
-- `HardConstraintLayer`: camada final explicita da imposicao forte de Dirichlet.
-
-`src/model/operators.py`
-
-- `LaplacianOperator` (`laplacian_kernel` em buffer): stencil 3x3 centrado, residuo apenas no interior;
-- `build_g_field`, `build_phi_mask`: wrappers de `src/utils.py`.
-
-`src/model/discriminator.py`
-
-- `PhysicsDiscriminator2D` (`D1`): critica `R0` (residuo Laplaciano);
-- `DataDiscriminator2D` (`D2`): critica pares `[T0, T_ref]`;
-- `FieldDualDiscriminator`: agrupa `D1` e `D2`.
-
-`src/losses/physical.py` e `src/losses/adversarial.py`
-
-- `loss_pde`, `neumann_loss`, `discriminator_loss_wgan_gp`, `generator_adversarial_loss` (WGAN-GP + drift + gap).
-
-`src/models.py` reexporta os modulos acima para compatibilidade.
-
-`src/trainer.py`
-
-- calcula `loss_pde` / `L_PDE_raw = mean(abs(R0))` com `R0 = Laplacian(T0)` no interior;
-- treina `D1` e `D2` com WGAN-GP, drift e penalidade de gap;
-- atualiza `lambda_pde` dinamicamente por lei log-linear ancorada em `config.lambda_pde`;
-- aplica balanceamento GradNorm do termo adversarial;
-- controla warmup, gate adversarial, pausa de criticos, queda de learning rate por drift e checkpoint/resume.
-- opcionalmente executa uma fase final `refine_physics()` que congela discriminadores e reduz diretamente o residual discreto.
-
-## Revisao Critica Da Dinamica Adversarial
-
-Pontos importantes para leitura de resultados:
-
-- `D1` era quase irrelevante quando `lambda_adv1 << lambda_adv2`. A configuracao padrao foi revisada para favorecer `D1` (`lambda_adv1=5.0e-2`) e deixar `D2` como auxiliar (`lambda_adv2=2.0e-2`).
-- `D2` compara `[pred, ref]` contra `[ref, ref]`; portanto, ele e aprendizado supervisionado por referencia FDM em roupagem adversarial. Isso e util como regularizacao, mas deve ser declarado assim em texto tecnico/artigo.
-- WGAN-GP com `n_critic=1` tende a subtreinar os criticos. O padrao agora usa `n_critic=3`, com `precision_refine_n_critic=3`.
-- `lambda_bc` nao participa do treino padrao porque `hard_constraint_bc=True` garante Dirichlet exatamente. O default foi zerado para evitar parametro morto.
-- `physics_refine_enable=False` por padrao. Runs com refinamento fisico final devem reportar `physics_refine_steps` e comparar contra uma run sem refinamento; caso contrario, a atribuicao de credito ao framework GAN fica comprometida.
-- O gate adversarial deve ser auditado em `adversarial_health.json`: `adv_gate_ever_opened`, `adv_gate_first_open_epoch`, `adv_gate_open_ratio`, `adv_gate_closed_ratio`, `d1_nonzero_ratio` e `d2_nonzero_ratio` dizem se D1/D2 participaram de fato.
-- O `best_trial.json` antigo de `runs_optuna_rebalance_32t` nao documenta `steps_per_epoch`; como `scripts/optunaSearch.py` usa default `1`, o launcher `start.py` assume `search_steps_per_epoch=1` e bloqueia mudancas sem `--allow-steps-mismatch`.
-- Os modulos refatorados em `src/physics/` e `src/training/` ainda nao sao o caminho canonico da loss no runtime. Eles devem ser citados como componentes auxiliares/testados, nao como origem ativa das perdas de treino.
-
-## Modulos Refatorados Ainda Nao Integrados Ao Runtime
-
-Os seguintes componentes existem, possuem testes unitarios e sao instanciados no `FieldPIGANTrainer`, mas a logica efetiva do treino ainda esta nos metodos internos de `src/trainer.py`:
+O caminho principal de execução é:
 
 ```text
-src/physics/pdeResidual.py        PDEResidualComputer (metricas/testes)
-src/physics/domainMetrics.py      DomainMetricsComputer
-src/training/lossFunctions.py     shim -> src/losses/*
-src/training/adaptiveSchemes.py   AdaptiveLambdaPDE, GradNormBalancer,
-                                  StagnationDetector, DivergenceDetector
+main.py / train.py
+  -> src/pipeline.py
+  -> src/model/*
+  -> src/losses/*
+  -> src/trainer.py
+  -> runs/
 ```
 
-Eles devem ser tratados como biblioteca preparada para uma proxima etapa de integracao, nao como caminho ativo do treinamento atual. Para auditoria, o contrato oficial de runtime permanece `src/pipeline.py` + `src/trainer.py` + `src/models.py`.
+Componentes centrais:
 
-## Execucao Local
+| Componente | Papel |
+|---|---|
+| `src/fdm.py` | Resolve uma referência FDM-SOR para comparação e supervisão auxiliar. |
+| `src/model/generator.py` | Define o gerador U-Net 2D com parametrização física forte. |
+| `src/model/operators.py` | Calcula o Laplaciano discreto no interior da malha. |
+| `src/model/discriminator.py` | Implementa `D1` físico e `D2` de referência. |
+| `src/losses/physical.py` | Perdas físicas: residual PDE e Neumann. |
+| `src/losses/adversarial.py` | Perdas WGAN-GP, drift e controle de gap dos críticos. |
+| `src/trainer.py` | Orquestra treino, críticos, GradNorm, checkpoint e refinamento opcional. |
+| `src/pipeline.py` | Monta malha, modelos, referência, treino, avaliação e arquivos de saída. |
 
-Use a pasta canonica do projeto:
+> [!IMPORTANT]
+> `D2` usa a referência FDM como regularizador supervisionado em formato adversarial. Ele ajuda
+> a estabilizar o campo, mas não deve ser descrito como evidência isolada de aprendizado
+> adversarial puro. A consistência física principal vem do residual Laplaciano, de `D1` e da
+> restrição forte de contorno.
 
-```powershell
-cd D:\TCC\PyTorch\2D_PlacaPlana\pigans_plate2D_lapace_d1
-```
+## Instalação
 
-Se voce estiver na pasta antiga `pigans_plate2D_lapace`, o `start.py` dessa pasta deve redirecionar para a pasta canonica `_d1`. Ainda assim, para desenvolvimento, testes e edicao de arquivos, prefira trabalhar diretamente em `pigans_plate2D_lapace_d1`.
-
-Instalacao:
+Use Python com PyTorch, NumPy, SciPy, Matplotlib e Optuna:
 
 ```powershell
 python -m venv .venv
@@ -116,51 +83,58 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Treino com a configuracao padrao:
+Se CUDA não estiver disponível e você quiser permitir execução em CPU:
+
+```powershell
+$env:PIGAN_ALLOW_CPU = "1"
+```
+
+## Treinamento Rápido
+
+Treino padrão definido por `ExperimentConfig`:
 
 ```powershell
 python main.py
 ```
 
-Treino final rebalanceado usando o melhor trial Optuna versionado em `runs_optuna_rebalance_32t`:
+Entrada alternativa equivalente:
+
+```powershell
+python train.py
+```
+
+Treino final usando o launcher reprodutível:
 
 ```powershell
 python start.py
 ```
 
-Treino final usando GPU explicitamente:
+Forçar GPU no launcher final:
 
 ```powershell
 python start.py --use-gpu
 ```
 
-Forcar CPU quando CUDA nao estiver disponivel:
-
-```powershell
-$env:PIGAN_ALLOW_CPU = "1"
-python main.py
-```
-
-Retomar checkpoint:
+Retomar um checkpoint:
 
 ```powershell
 python main.py --resume-checkpoint runs/checkpoints/checkpoint_epoch_1000.pt
 ```
 
-Retomar checkpoint aceitando campos ausentes/novos:
+Permitir retomada com diferenças pequenas de arquitetura/configuração:
 
 ```powershell
 python main.py --resume-checkpoint runs/checkpoints/checkpoint_epoch_1000.pt --no-strict-checkpoint
 ```
 
-Modos de gerador expostos pela CLI:
+Selecionar modo do gerador:
 
 ```powershell
 python main.py --generator-mode stochastic_pigan --latent-dim 8
 python main.py --generator-mode deterministic_adversarial
 ```
 
-Determinismo:
+Controlar determinismo:
 
 ```powershell
 python main.py --deterministic
@@ -168,71 +142,69 @@ python main.py --no-deterministic
 python main.py --deterministic --deterministic-warn-only
 ```
 
-## Configuracao Padrao Relevante
+## Configuração Atual
 
-Fonte: `ExperimentConfig` e `SystemConfig` em `src/config.py`.
+Os valores padrão vivem em `src/config.py`.
 
-| Campo | Valor atual |
+| Parâmetro | Valor |
 |---|---:|
 | `generator_mode` | `stochastic_pigan` |
 | `latent_dim` | `8` |
 | `grid_size_x`, `grid_size_y` | `32`, `32` |
-| `epochs`, `batch_size` | `4000`, `16` |
-| `gen_lr`, `disc_lr` | `1.15e-4`, `8.625e-5` |
-| `n_critic`, `disc_update_every` | `3`, `1` |
+| `epochs` | `4000` |
+| `steps_per_epoch` | `1` |
+| `batch_size` | `16` |
+| `gen_lr` | `1.15e-4` |
+| `disc_lr` | `8.625e-5` |
+| `n_critic` | `3` |
 | `lambda_pde` | `37.0` |
-| `lambda_bc` | `0.0` com hard constraint |
+| `lambda_pde_min`, `lambda_pde_max` | `50.0`, `500.0` |
 | `lambda_adv1`, `lambda_adv2` | `5.0e-2`, `2.0e-2` |
+| `lambda_neumann` | `10.0` |
 | `lambda_gp` | `8.0` |
-| `max_grad_norm` | `1.85` |
-| `adaptive_lambda_pde` | `True` |
-| `lambda_pde_min`, `lambda_pde_max` | `19.0`, `98.0` |
-| `residual_scale_reference` | `1.0e-2` |
-| `lambda_pde_growth_exponent` | `0.60` |
-| `gradnorm_target_adv_to_pde` | `0.35` |
-| `adv_warmup_epochs` | `120` |
-| `adv_residual_gate_target` | `0.01` |
-| `precision_refine_enable` | `True` |
-| `precision_refine_n_critic` | `3` |
+| `hard_constraint_bc` | `True` |
 | `physics_refine_enable` | `False` |
-| `physics_refine_steps` | `0` |
 | `deterministic_run` | `True` |
 
-## Saidas Geradas
+Também é possível passar um JSON customizado:
 
-Diretorio `runs/results/`:
-
-```text
-metrics.json
-training_history.json
-adversarial_health.json
-baseline_metrics.json
-training_gain.json
-temperature_pred.npy
-temperature_ref_fdm.npy
-pde_residual.npy
-l2_relative_vs_fdm.txt
+```powershell
+python main.py --config caminho\para\config.json
 ```
 
-Diretorio `runs/plots/`, quando plotagem esta habilitada:
+Somente chaves reconhecidas por `ExperimentConfig` e `SystemConfig` são aplicadas.
+
+## Saídas Geradas
+
+Depois do treino, o pipeline grava resultados em `runs/`:
 
 ```text
-field_comparison.png
-training_curves.png
-ensemble_predictions.png
-gan_quality_metrics.png
-physics_consistency.png
-training_history.png
-uncertainty_analysis.png
+runs/
+  results/
+    metrics.json
+    training_history.json
+    adversarial_health.json
+    baseline_metrics.json
+    training_gain.json
+    temperature_pred.npy
+    temperature_ref_fdm.npy
+    pde_residual.npy
+    l2_relative_vs_fdm.txt
+  plots/
+    field_comparison.png
+    training_curves.png
+    ensemble_predictions.png
+    gan_quality_metrics.png
+    physics_consistency.png
+    training_history.png
+    uncertainty_analysis.png
+  checkpoints/
+    checkpoint_epoch_<N>.pt
+  logs/
+    training.log
 ```
 
-Diretorio `runs/checkpoints/`:
-
-```text
-checkpoint_epoch_<N>.pt
-```
-
-Leitura rapida apos treino:
+Leitura rápida dos principais indicadores:
 
 ```powershell
 Get-Content runs/results/metrics.json
@@ -240,9 +212,20 @@ Get-Content runs/results/training_gain.json
 Get-Content runs/results/adversarial_health.json
 ```
 
-## Scripts De Busca
+Métricas importantes:
 
-Optuna principal:
+| Métrica | Interpretação |
+|---|---|
+| `relative_l2_error_vs_fdm` | Erro relativo do campo neural contra a solução FDM. |
+| `pde_residual_mean` | Média do residual discreto `nabla²T` no interior. |
+| `pde_residual_max` | Pior residual encontrado na malha. |
+| `boundary_error` | Erro nas condições de contorno avaliadas. |
+| `adv_gate_open_ratio` | Fração do treino em que o gate adversarial atuou. |
+| `d1_nonzero_ratio`, `d2_nonzero_ratio` | Indicam participação efetiva dos discriminadores. |
+
+## Busca De Hiperparâmetros
+
+Busca principal com Optuna:
 
 ```powershell
 python scripts/optunaSearch.py --trials 40 --epochs 180 --steps-per-epoch 1
@@ -280,54 +263,67 @@ powershell -ExecutionPolicy Bypass -File scripts/runOptunaFixedBestRefine3050.ps
 
 ## Testes E Auditoria
 
-Rodar testes usando um `basetemp` local evita falhas de permissao no Temp do Windows:
+Rodar a suíte:
 
 ```powershell
 python -m pytest -q --basetemp .pytest_tmp
 ```
 
-Auditoria de estrutura e nomes:
+Auditar estrutura e convenções de nomes:
 
 ```powershell
 python scripts/auditProject.py
 ```
 
-O script de auditoria valida a arvore oficial, nomes `lowerCamelCase` para scripts/modulos, nomes `testCamelCase` para testes, ausencia de nomes legados `snake_case` e ausencia de diretorios antigos fora do contrato atual.
+A auditoria verifica a árvore oficial, nomes `lowerCamelCase` para scripts e módulos,
+testes em padrão `testCamelCase`, ausência de módulos legados em `snake_case` e remoção de
+diretórios antigos fora do contrato atual.
 
-## Estrutura Contratada
+## Estrutura Do Projeto
 
 ```text
 src/
-  config.py
-  pipeline.py
-  trainer.py
-  models.py
-  evaluation.py
-  fdm.py
-  utils.py
+  config.py                  configurações de experimento e sistema
+  pipeline.py                execução ponta a ponta
+  trainer.py                 laço de treino PI-GAN
+  fdm.py                     referência FDM-SOR
+  evaluation.py              métricas do campo
+  models.py                  reexports de compatibilidade
+  utils.py                   malha, contorno e máscaras
+  model/
+    generator.py
+    discriminator.py
+    operators.py
+  losses/
+    physical.py
+    adversarial.py
   physics/
     domainMetrics.py
     pdeResidual.py
   training/
     adaptiveSchemes.py
+    constants.py
     lossFunctions.py
 scripts/
-  auditProject.py
-  optunaCommon.py
   optunaSearch.py
   tuneOptunaPhysicsFirst.py
   tuneActivePigan.py
   runFinalBest.py
+  auditProject.py
 tests/
-  testCheckpointCompatibility.py
-  testCheckpointResume.py
-  testCpuFallback.py
-  testFieldTrainingModes.py
-  testInferencePoints.py
-  testLaplacianFieldOperator.py
-  testMainConfig.py
-  testPipelineExecution.py
-  testTrainingModules.py
+  test*.py
 main.py
+train.py
+start.py
 inference.py
 ```
+
+## Notas Para Interpretação Científica
+
+- A solução FDM é referência numérica e regularizador auxiliar; ela não substitui a perda física.
+- `D1` opera sobre o residual Laplaciano e é o discriminador mais diretamente ligado à física.
+- `D2` compara pares envolvendo `T_ref`; relate isso como supervisão auxiliar/adversarial.
+- `physics_refine_enable=False` por padrão. Quando ativado, reporte como etapa de refinamento ou
+  ablação separada.
+- Para validar uma execução, confira sempre `metrics.json`, `training_history.json` e
+  `adversarial_health.json`, não apenas as figuras.
