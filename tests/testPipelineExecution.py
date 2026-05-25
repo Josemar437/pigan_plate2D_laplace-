@@ -45,3 +45,18 @@ def test_pipeline_execution_cpu(tmp_path):
     assert np.allclose(residual[-1, :], 0.0, atol=1e-12)
     assert np.allclose(residual[:, 0], 0.0, atol=1e-12)
     assert np.allclose(residual[:, -1], 0.0, atol=1e-12)
+
+
+def test_adversarial_health_records_gate_open_epoch():
+    history = [
+        {"epoch": 1, "g_adv_gate": 0.0, "g_adv_gate_enabled": 1.0},
+        {"epoch": 2, "g_adv_gate": 0.4, "g_adv_gate_enabled": 1.0},
+        {"epoch": 3, "g_adv_gate": 1.0, "g_adv_gate_enabled": 1.0},
+    ]
+
+    health = PIGANPipeline._compute_adversarial_health(history)
+
+    assert health["adv_gate_ever_opened"] is True
+    assert health["adv_gate_never_opened"] is False
+    assert health["adv_gate_first_nonzero_epoch"] == 2.0
+    assert health["adv_gate_first_open_epoch"] == 3.0

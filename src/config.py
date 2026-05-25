@@ -2,13 +2,14 @@
 """Configurações do projeto PI-GAN (SystemConfig e ExperimentConfig)."""
 import gc
 import importlib
+import json
 import logging
 import os
 import random
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 import torch
@@ -182,7 +183,7 @@ class ExperimentConfig:
     T_RIGHT: float = 100.0
     LX: float = 1.0
     LY: float = 1.0
-    boundary_sine_amplitude: float = 1.0
+    boundary_sine_amplitude: float = 0.0
 
     # === Arquitetura do gerador ===
     # generator_mode:
@@ -200,6 +201,7 @@ class ExperimentConfig:
     generator_pooling: str = "avg"
     use_physical_coordinates: bool = True
     hard_constraint_bc: bool = True
+    hard_constraint_profile: str = "tanh"  # Perfil de restrição dura: 'tanh' ou 'polynomial'
 
     # === Arquitetura do discriminador ===
     discriminator_base_channels: int = 12
@@ -216,7 +218,7 @@ class ExperimentConfig:
     disc_lr_d2: Optional[float] = 8.625e-5
     betas: Tuple[float, float] = (0.5, 0.9)
     weight_decay: float = 1e-5
-    n_critic: int = 1
+    n_critic: int = 3
     disc_update_every: int = 1
     # Para evitar explosões de gradiente nas fronteiras
     max_grad_norm: float = 1.85
@@ -229,10 +231,12 @@ class ExperimentConfig:
     fdm_max_iter: int = 100000
     fdm_omega: float = 1.0
 
-    lambda_adv1: float = 5.0e-1
-    lambda_adv2: float = 2.0e-1
+    lambda_adv1: float = 5.0e-2
+    lambda_adv2: float = 2.0e-2
+    lambda_diversity: float = 1.0e-4
     lambda_pde: float = 37.0
-    lambda_bc: float = 20.0
+    lambda_bc: float = 0.0
+    lambda_neumann: float = 10.0
     lambda_gp: float = 8.0
     lambda_gp_d1: Optional[float] = 8.0
     lambda_gp_d2: Optional[float] = 8.0
@@ -291,9 +295,9 @@ class ExperimentConfig:
     adaptive_lambda_pde: bool = True
     residual_tolerance_target: float = 1e-3
     residual_scale_reference: float = 1.0e-2
-    lambda_pde_growth_exponent: float = 0.60
-    lambda_pde_min: float = 19.0
-    lambda_pde_max: float = 98.0
+    lambda_pde_growth_exponent: float = 1.2  # Escala mais agressiva (CORR 24/05)0
+    lambda_pde_min: float = 50.0  # Aumentado para força mínima (CORR 24/05)
+    lambda_pde_max: float = 500.0  # Aumentado para convergência agressiva (CORR 24/05)
     lambda_pde_ema_beta: float = 0.9
     gradnorm_balance: bool = True
     gradnorm_target_adv_to_pde: float = 0.35
@@ -316,6 +320,16 @@ class ExperimentConfig:
     plateau_reduce_discriminators: bool = True
     activation_abs_limit: float = 1e6
     residual_hist_bins: int = 12
+    physics_refine_enable: bool = False
+    physics_refine_min_train_epochs: int = 50
+    physics_refine_steps: int = 0
+    physics_refine_lr: float = 2.0e-5
+    physics_refine_batch_size: int = 8
+    physics_refine_lambda_data: float = 1.0e-6
+    physics_refine_lambda_bc: float = 1.0
+    physics_refine_lambda_neumann: float = 1.0
+    physics_refine_patience: int = 120
+    physics_refine_min_delta: float = 1.0e-5
     early_stop_on_nonfinite: bool = True
     generator_init: str = "kaiming"
     discriminator_init: str = "kaiming"
@@ -341,8 +355,13 @@ class ExperimentConfig:
 
         if float(self.lambda_adv1) < 0.0 or float(self.lambda_adv2) < 0.0:
             raise ModelConfigurationError("lambda_adv1/lambda_adv2 devem ser >= 0.")
-        if float(self.boundary_sine_amplitude) < 0.0:
-            raise ModelConfigurationError("boundary_sine_amplitude deve ser >= 0.")
+        if float(self.lambda_diversity) < 0.0:
+            raise ModelConfigurationError("lambda_diversity deve ser >= 0.")
+        if abs(float(self.boundary_sine_amplitude)) > 1e-12:
+            raise ModelConfigurationError(
+                "boundary_sine_amplitude deve ser 0.0 para o problema misto "
+                "Dirichlet-Neumann."
+            )
 
         if float(self.gen_lr) <= 0.0 or float(self.disc_lr) <= 0.0:
             raise ModelConfigurationError("gen_lr e disc_lr devem ser > 0.")
@@ -353,6 +372,8 @@ class ExperimentConfig:
 
         if float(self.lambda_bc) < 0.0:
             raise ModelConfigurationError("lambda_bc deve ser >= 0.")
+        if float(self.lambda_neumann) < 0.0:
+            raise ModelConfigurationError("lambda_neumann deve ser >= 0.")
 
         if int(self.n_critic) < 1:
             raise ModelConfigurationError("n_critic deve ser >= 1.")
@@ -478,6 +499,24 @@ class ExperimentConfig:
             raise ModelConfigurationError("activation_abs_limit deve ser > 0.")
         if int(self.residual_hist_bins) < 4:
             raise ModelConfigurationError("residual_hist_bins deve ser >= 4.")
+        if int(self.physics_refine_min_train_epochs) < 0:
+            raise ModelConfigurationError("physics_refine_min_train_epochs deve ser >= 0.")
+        if int(self.physics_refine_steps) < 0:
+            raise ModelConfigurationError("physics_refine_steps deve ser >= 0.")
+        if float(self.physics_refine_lr) <= 0.0:
+            raise ModelConfigurationError("physics_refine_lr deve ser > 0.")
+        if int(self.physics_refine_batch_size) < 1:
+            raise ModelConfigurationError("physics_refine_batch_size deve ser >= 1.")
+        if float(self.physics_refine_lambda_data) < 0.0:
+            raise ModelConfigurationError("physics_refine_lambda_data deve ser >= 0.")
+        if float(self.physics_refine_lambda_bc) < 0.0:
+            raise ModelConfigurationError("physics_refine_lambda_bc deve ser >= 0.")
+        if float(self.physics_refine_lambda_neumann) < 0.0:
+            raise ModelConfigurationError("physics_refine_lambda_neumann deve ser >= 0.")
+        if int(self.physics_refine_patience) < 0:
+            raise ModelConfigurationError("physics_refine_patience deve ser >= 0.")
+        if float(self.physics_refine_min_delta) < 0.0:
+            raise ModelConfigurationError("physics_refine_min_delta deve ser >= 0.")
         if float(self.discriminator_capacity_scale) <= 0.0:
             raise ModelConfigurationError("discriminator_capacity_scale deve ser > 0.")
         if not (0.0 <= float(self.discriminator_dropout) < 1.0):
@@ -538,6 +577,53 @@ class ExperimentConfig:
         if self.generator_mode == "deterministic_adversarial":
             # Modo explicitamente nao estocastico.
             self.latent_dim = 0
+
+        # === P1: CORREÇÃO SKILL - lambda_bc deve ser 0 quando hard_constraint_bc=True ===
+        if bool(self.hard_constraint_bc) and float(self.lambda_bc) > 1e-6:
+            warnings.warn(
+                f"P1 CORRECTION: hard_constraint_bc=True mas lambda_bc={self.lambda_bc:.2e}. "
+                f"Forçando lambda_bc=0.0 pois a restrição dura (T=g+φ·T̂) "
+                f"já garante Dirichlet lateral exato. "
+                f"Use lambda_neumann para as bordas adiabáticas horizontais.",
+                UserWarning
+            )
+            self.lambda_bc = 0.0
+
+        # === VALIDATION: Adaptive Lambda bounds sanity check ===
+        if bool(getattr(self, "adaptive_lambda_pde", False)):
+            lambda_min = float(getattr(self, "lambda_pde_min", 5.0))
+            lambda_max = float(getattr(self, "lambda_pde_max", 400.0))
+            if lambda_min >= lambda_max:
+                raise ModelConfigurationError(
+                    f"Adaptive lambda: lambda_pde_min ({lambda_min}) deve ser < "
+                    f"lambda_pde_max ({lambda_max})"
+                )
+            if lambda_min <= 0 or lambda_max <= 0:
+                raise ModelConfigurationError(
+                    f"Adaptive lambda: ambos lambda_pde_min e lambda_pde_max devem ser > 0, "
+                    f"got min={lambda_min}, max={lambda_max}"
+                )
+
+
+    @property
+    def lambda_adv(self) -> float:
+        """
+        Propriedade de compatibilidade que retorna lambda_adv1 (discriminador principal).
+        
+        Retorno:
+            float: Valor de lambda_adv1 para uso em validadores e componentes legados.
+        """
+        return self.lambda_adv1
+
+    @property
+    def lambda_drift(self) -> float:
+        """Alias de critic_drift (notação do artigo)."""
+        return float(self.critic_drift)
+
+    @property
+    def lambda_gap(self) -> float:
+        """Coeficiente quadrático da penalidade de gap dos críticos."""
+        return float(self.critic_gap_penalty)
 
 
 class GPUMemoryManager:
@@ -684,6 +770,48 @@ def setup_logging(level: int = logging.INFO, log_file: Optional[Path] = None) ->
     if HAS_STRUCTLOG:
         return structlog.get_logger("pigan")
     return EnhancedLogger(root_logger)
+
+
+def log_hyperparameters_at_start(
+    output_dir: Path,
+    *,
+    experiment_config: ExperimentConfig,
+    system_config: Optional[SystemConfig] = None,
+    trainer_hyperparameters: Optional[Dict[str, Any]] = None,
+) -> Path:
+    """
+    Persiste hiperparâmetros do experimento no início do treino (reprodutibilidade).
+
+    Retorno:
+        Caminho do arquivo JSON escrito.
+    """
+    from dataclasses import asdict
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    payload: Dict[str, Any] = {
+        "experiment_config": asdict(experiment_config),
+        "paper_hyperparameters": {
+            "lambda_gp": float(experiment_config.lambda_gp),
+            "lambda_drift": float(experiment_config.lambda_drift),
+            "lambda_gap": float(experiment_config.lambda_gap),
+            "max_critic_gap": float(experiment_config.max_critic_gap),
+            "critic_gap_penalty": float(experiment_config.critic_gap_penalty),
+            "lambda_adv1": float(experiment_config.lambda_adv1),
+            "lambda_adv2": float(experiment_config.lambda_adv2),
+            "lambda_pde": float(experiment_config.lambda_pde),
+            "lambda_neumann": float(experiment_config.lambda_neumann),
+        },
+    }
+    if system_config is not None:
+        payload["system_config"] = asdict(system_config)
+    if trainer_hyperparameters:
+        payload["trainer_hyperparameters"] = trainer_hyperparameters
+
+    out_path = output_dir / "hyperparameters.json"
+    with out_path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, ensure_ascii=False)
+    return out_path
 
 
 def setup_torch_optimizations(config: SystemConfig, logger: Optional[Any] = None) -> None:

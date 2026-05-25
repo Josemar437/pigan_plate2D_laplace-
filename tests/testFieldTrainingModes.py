@@ -5,11 +5,11 @@ import math
 
 import torch
 
-from src.fdm import solve_laplace_dirichlet
+from src.fdm import solve_laplace_mixed_dirichlet_neumann
 from src.utils import (
     build_dirichlet_extension,
-    build_domain_masks,
     build_hard_constraint_mask,
+    build_mixed_boundary_masks,
     create_cartesian_grid,
 )
 from src.models import LaplacianLayer, create_field_pigan_models
@@ -42,19 +42,20 @@ def _build_trainer(
     )
     phi = build_hard_constraint_mask(x_grid, y_grid, lx=lx, ly=ly)
 
-    boundary_values = g_field.clone()
-    boundary_values[1:-1, 1:-1] = 0.0
-    ref, _ = solve_laplace_dirichlet(
-        boundary_values,
+    ref, _ = solve_laplace_mixed_dirichlet_neumann(
+        g_field,
         lx=lx,
         ly=ly,
+        t_left=200.0,
+        t_right=100.0,
         tol=1e-6,
         max_iter=2000,
         omega=1.0,
-        initial_guess=g_field,
     )
 
-    interior_mask, boundary_mask = build_domain_masks(ny, nx, device=device, dtype=torch.float32)
+    interior_mask, boundary_mask, neumann_mask = build_mixed_boundary_masks(
+        ny, nx, device=device, dtype=torch.float32
+    )
 
     generator, discriminator = create_field_pigan_models(
         generator_config={
@@ -110,6 +111,8 @@ def _build_trainer(
         adv_warmup_epochs=0,
         adv_residual_gate_target=0.0,
         gradnorm_balance=False,
+        lambda_neumann=0.0,
+        neumann_dy=hy,
     )
 
     return FieldPIGANTrainer(
@@ -125,6 +128,7 @@ def _build_trainer(
         config=cfg,
         device=device,
         logger=None,
+        neumann_mask=neumann_mask,
     )
 
 

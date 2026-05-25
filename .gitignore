@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 .python-version
+.pyre/
 .mypy_cache/
 .ruff_cache/
 .hypothesis/
@@ -12,14 +13,18 @@ __pycache__/
 # Virtual environments
 .venv/
 venv/
+env/
 ENV/
 .smoke311/
 
 # Test / coverage artifacts
 .pytest_cache/
+.pytest_tmp/
 .coverage
 .coverage.*
 htmlcov/
+coverage.xml
+*.cover
 
 # Jupyter
 .ipynb_checkpoints/
@@ -44,13 +49,32 @@ runs/
 runs*/
 logs/
 doc/
+checkpoints/
+outputs/
+artifacts/
+wandb/
+mlruns/
+tensorboard/
 pigan_checkpoints_enhanced/
 pigan_plots/
 pigan_resulado_bruto/
 *.pt
 *.pth
 *.ckpt
+*.onnx
+*.h5
+*.npy
+*.npz
 *.log
+
+# Generated reports / temporary exports
+*.md
+!README.md
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
 
 # Local agent/tooling files
 .agent/

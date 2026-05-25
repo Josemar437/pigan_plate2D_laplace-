@@ -1,9 +1,13 @@
 ﻿# -*- coding: utf-8 -*-
-"""Utilitários para construção de malhas 2D e manipulação de contornos."""
+"""Geometria discreta usada pelo pipeline Laplace 2D.
+
+Este modulo define a malha `[0,LX] x [0,LY]`, a extensao dos contornos
+Dirichlet laterais `g` e a mascara `phi` usada por `UNetGenerator2D` em
+`T = g + phi*N`.
+"""
 
 from __future__ import annotations
 
-import math
 from typing import Tuple
 
 import torch
@@ -18,23 +22,7 @@ def create_cartesian_grid(
     device: torch.device,
     dtype: torch.dtype = torch.float32,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Cria as malhas de coordenadas X e Y para um domínio retangular.
-
-    Parâmetros:
-        nx: Número de pontos no eixo X.
-        ny: Número de pontos no eixo Y.
-        lx: Comprimento físico total no eixo X.
-        ly: Comprimento físico total no eixo Y.
-        device: Dispositivo (CPU/GPU) onde os tensores serão alocados.
-        dtype: Tipo de dado dos tensores (default: float32).
-
-    Retorno:
-        Uma tupla (x_grid, y_grid) com tensores de forma [ny, nx].
-
-    Exceções:
-        ValueError: Se nx ou ny forem menores que 3.
-    """
+    """Retorna `x_grid,y_grid` com shape `[ny,nx]` e indexacao `ij`."""
     if nx < 3 or ny < 3:
         raise ValueError("A malha deve ter pelo menos nx >= 3 e ny >= 3.")
 
@@ -54,64 +42,21 @@ def build_dirichlet_extension(
     t_right: float,
     boundary_sine_amplitude: float = 0.0,
 ) -> torch.Tensor:
-    """
-    Constrói uma extensão g(x,y) que satisfaz as condições de contorno de Dirichlet.
-
-    As bordas laterais são constantes T_LEFT/T_RIGHT. As bordas superior e
-    inferior são perfis lineares com uma possível perturbação senoidal.
-    O interior é interpolado via Coons Patch.
-
-    Parâmetros:
-        x_grid: Malha de coordenadas X.
-        y_grid: Malha de coordenadas Y.
-        lx: Comprimento do domínio em X.
-        ly: Comprimento do domínio em Y.
-        t_left: Temperatura na borda esquerda (X=0).
-        t_right: Temperatura na borda direita (X=LX).
-        boundary_sine_amplitude: Amplitude da perturbação senoidal nas bordas.
-
-    Retorno:
-        Um tensor com a extensão suave das condições de contorno.
-    """
+    """Constroi `g(x,y)` compativel com Dirichlet lateral e Neumann horizontal."""
     if x_grid.shape != y_grid.shape:
         raise ValueError("x_grid e y_grid devem ter a mesma forma.")
 
     x_hat = x_grid / (float(lx) + 1e-12)
-    y_hat = y_grid / (float(ly) + 1e-12)
 
     t_left_t = torch.tensor(float(t_left), device=x_grid.device, dtype=x_grid.dtype)
     t_right_t = torch.tensor(float(t_right), device=x_grid.device, dtype=x_grid.dtype)
-    amplitude = torch.tensor(
-        float(boundary_sine_amplitude), device=x_grid.device, dtype=x_grid.dtype
-    )
-
-    linear_x = t_left_t + (t_right_t - t_left_t) * x_hat
-    sine = torch.sin(math.pi * x_hat)
-
-    bottom = linear_x + amplitude * sine
-    top = linear_x - amplitude * sine
-    left = torch.full_like(y_grid, t_left_t)
-    right = torch.full_like(y_grid, t_right_t)
-
-    g00 = t_left_t
-    g10 = t_right_t
-    g01 = t_left_t
-    g11 = t_right_t
-
-    # Coons Patch bilineal para extensão das fronteiras.
-    coons = (
-        (1.0 - x_hat) * left
-        + x_hat * right
-        + (1.0 - y_hat) * bottom
-        + y_hat * top
-        - (
-            (1.0 - x_hat) * (1.0 - y_hat) * g00
-            + x_hat * (1.0 - y_hat) * g10
-            + (1.0 - x_hat) * y_hat * g01
-            + x_hat * y_hat * g11
+    if abs(float(boundary_sine_amplitude)) > 1e-12:
+        raise ValueError(
+            "boundary_sine_amplitude deve ser 0.0 para o problema misto "
+            "Dirichlet-Neumann: T(0,y)=T_LEFT, T(LX,y)=T_RIGHT, dT/dy=0."
         )
-    )
-    return coons
+
+    return t_left_t + (t_right_t - t_left_t) * x_hat
 
 
 def build_hard_constraint_mask(
@@ -121,26 +66,11 @@ def build_hard_constraint_mask(
     lx: float,
     ly: float,
 ) -> torch.Tensor:
-    """
-    Calcula o termo de decaimento phi(x,y) para imposição forte de contorno.
-
-    Calcula phi(x,y) = x_norm * (1 - x_norm) * y_norm * (1 - y_norm), que é
-    zero em todas as bordas e máximo no centro.
-
-    Parâmetros:
-        x_grid: Malha de coordenadas X.
-        y_grid: Malha de coordenadas Y.
-        lx: Comprimento do domínio em X.
-        ly: Comprimento do domínio em Y.
-
-    Retorno:
-        Um tensor com a máscara de imposição de contorno (distância à fronteira).
-    """
+    """Retorna `phi` normalizado para `T=g+phi*N`, zero nas bordas Dirichlet."""
     x_hat = x_grid / (float(lx) + 1e-12)
-    y_hat = y_grid / (float(ly) + 1e-12)
-    phi = x_hat * (1.0 - x_hat) * y_hat * (1.0 - y_hat)
+    phi = x_hat * (1.0 - x_hat)
     # Normaliza para max=1, mantendo escala útil para o termo corretivo phi*N.
-    # Valores de borda permanecem zero, preservando Dirichlet forte.
+    # Valores nas laterais permanecem zero, preservando Dirichlet forte.
     phi_max = torch.amax(phi).clamp_min(1e-12)
     return phi / phi_max
 
@@ -152,18 +82,7 @@ def build_domain_masks(
     device: torch.device,
     dtype: torch.dtype = torch.float32,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Constrói máscaras binárias para separar o interior e as bordas.
-
-    Parâmetros:
-        ny: Número de pontos em Y.
-        nx: Número de pontos em X.
-        device: Dispositivo de alocação.
-        dtype: Tipo de dado (default: float32).
-
-    Retorno:
-        Uma tupla (máscara_interior, máscara_fronteira) com forma [1, 1, ny, nx].
-    """
+    """Retorna mascaras `[1,1,ny,nx]` para interior `[1:-1,1:-1]` e borda."""
     if nx < 3 or ny < 3:
         raise ValueError("A malha deve ter pelo menos nx >= 3 e ny >= 3.")
 
@@ -171,5 +90,24 @@ def build_domain_masks(
     interior[:, :, 1:-1, 1:-1] = 1.0
     boundary = 1.0 - interior
     return interior, boundary
+
+
+def build_mixed_boundary_masks(
+    ny: int,
+    nx: int,
+    *,
+    device: torch.device,
+    dtype: torch.dtype = torch.float32,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Retorna mascaras para interior, Dirichlet lateral e Neumann horizontal."""
+    interior, _ = build_domain_masks(ny, nx, device=device, dtype=dtype)
+    dirichlet = torch.zeros((1, 1, ny, nx), device=device, dtype=dtype)
+    dirichlet[:, :, :, 0] = 1.0
+    dirichlet[:, :, :, -1] = 1.0
+
+    neumann = torch.zeros((1, 1, ny, nx), device=device, dtype=dtype)
+    neumann[:, :, 0, 1:-1] = 1.0
+    neumann[:, :, -1, 1:-1] = 1.0
+    return interior, dirichlet, neumann
 
 

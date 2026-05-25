@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """Ajuste com Optuna focado na dinÃ¢mica de controle da PI-GAN.
 
@@ -33,9 +33,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.config import ExperimentConfig, SystemConfig
-from src.pipeline import PIGANPipeline
-from scripts.optuna_common import (
+from src.config import ExperimentConfig, SystemConfig  # noqa: E402
+from src.pipeline import PIGANPipeline  # noqa: E402
+from scripts.optunaCommon import (  # noqa: E402
     best_train_residual as _best_train_residual,
     round_hyperparams as _round_hyperparams,
     study_summary_payload as _study_summary_payload,
@@ -646,7 +646,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--generator-base-channels", type=int, default=12)
     parser.add_argument("--generator-depth", type=int, default=3)
     parser.add_argument("--discriminator-base-channels", type=int, default=12)
-    parser.add_argument("--boundary-sine-amplitude", type=float, default=1.0)
+    parser.add_argument("--boundary-sine-amplitude", type=float, default=0.0)
     parser.add_argument("--fdm-tol", type=float, default=1e-12)
     parser.add_argument("--fdm-max-iter", type=int, default=100000)
 

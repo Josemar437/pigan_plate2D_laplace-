@@ -38,8 +38,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.config import ExperimentConfig, SystemConfig
-from src.pipeline import PIGANPipeline
+from src.config import ExperimentConfig, SystemConfig  # noqa: E402
+from src.pipeline import PIGANPipeline  # noqa: E402
 
 
 @dataclass(frozen=True)
