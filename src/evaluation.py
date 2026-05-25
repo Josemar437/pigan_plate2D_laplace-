@@ -1,9 +1,9 @@
 ﻿# -*- coding: utf-8 -*-
-"""Métricas de avaliação para modelos de campo PI-GAN."""
+"""Metricas finais salvas pelo pipeline para `temperature_pred` vs `T_ref`."""
 
 from __future__ import annotations
 
-from typing import Dict
+from typing import Dict, Optional
 
 import torch
 
@@ -17,21 +17,10 @@ def compute_field_metrics(
     laplacian: LaplacianLayer,
     interior_mask: torch.Tensor,
     boundary_mask: torch.Tensor,
+    neumann_mask: Optional[torch.Tensor] = None,
+    neumann_dy: float = 1.0,
 ) -> Dict[str, float]:
-    """
-    Calcula diversas métricas de erro e consistência física para o campo predito.
-
-    Parâmetros:
-        pred_field: Campo de temperatura predito pelo modelo [1, 1, H, W].
-        ref_field: Campo de temperatura de referência (FDM ou exato) [1, 1, H, W].
-        laplacian: Camada que aplica o operador Laplaciano para cálculo de resíduo.
-        interior_mask: Máscara binária para os pontos internos do domínio.
-        boundary_mask: Máscara binária para os pontos de fronteira.
-
-    Retorno:
-        Dicionário contendo métricas como MAE, RMSE, R2, erro L2 relativo,
-        máximo erro absoluto e resíduos da PDE.
-    """
+    """Compara campos `[1,1,H,W]` e mede erro, residuo PDE e fronteira."""
     diff = pred_field - ref_field
     abs_diff = diff.abs()
 
@@ -76,6 +65,21 @@ def compute_field_metrics(
 
     # Erro nas fronteiras.
     boundary_error = (abs_diff * boundary_mask).sum() / (boundary_mask.sum() + 1e-12)
+    neumann_max_error = torch.tensor(0.0, device=pred_field.device, dtype=pred_field.dtype)
+    neumann_mse = torch.tensor(0.0, device=pred_field.device, dtype=pred_field.dtype)
+    if neumann_mask is not None:
+        dy = max(float(neumann_dy), 1e-12)
+        neumann_residual = torch.zeros_like(pred_field)
+        neumann_residual[:, :, 0, 1:-1] = (
+            pred_field[:, :, 1, 1:-1] - pred_field[:, :, 0, 1:-1]
+        ) / dy
+        neumann_residual[:, :, -1, 1:-1] = (
+            pred_field[:, :, -1, 1:-1] - pred_field[:, :, -2, 1:-1]
+        ) / dy
+        neumann_mse = ((neumann_residual ** 2) * neumann_mask).sum() / (
+            neumann_mask.sum() + 1e-12
+        )
+        neumann_max_error = (neumann_residual.abs() * neumann_mask).max()
 
     return {
         "mae": float(mae.item()),
@@ -88,5 +92,7 @@ def compute_field_metrics(
         "pde_residual_l2": float(pde_residual_l2.item()),
         "pde_residual_max": float(pde_residual_max.item()),
         "boundary_error": float(boundary_error.item()),
+        "neumann_mse": float(neumann_mse.item()),
+        "neumann_max_error": float(neumann_max_error.item()),
     }
 

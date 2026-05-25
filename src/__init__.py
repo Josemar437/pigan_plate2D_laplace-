@@ -11,9 +11,6 @@ Fluxo operacional oficial:
 - src/pipeline.py
 - src/models.py
 - src/trainer.py
-
-Código legado/órfão foi movido para `orphaned/` e não faz parte do caminho
-de execução principal.
 """
 
 __all__ = [
